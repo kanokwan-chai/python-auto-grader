@@ -60,14 +60,14 @@ export default function GradingQueuePage() {
     const targets = submissions.filter((s) => s.submission.status !== "not_submitted");
     let done = 0;
     try {
-      for (let i = 0; i < targets.length; i += 2) {
-        const subIds = targets.slice(i, i + 2).map((s) => s.submission.id);
+      for (let i = 0; i < targets.length; i += 1) {
+        const subIds = [targets[i].submission.id];
         const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${selectedAsgId}/run-batch`, {
           method: "POST",
           body: JSON.stringify({ submission_ids: subIds, run_sync_inline: true }),
         });
         done += res.queued_count;
-        setStatusMsg(`กำลังตรวจงาน... ${Math.min(i + 2, targets.length)} / ${targets.length} คน`);
+        setStatusMsg(`กำลังตรวจงาน... ${i + 1} / ${targets.length} คน`);
       }
       setStatusMsg(`ตรวจงานอัตโนมัติเรียบร้อยแล้ว ${done} รายการ`);
       await loadSubmissions();

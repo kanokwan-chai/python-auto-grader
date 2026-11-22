@@ -183,6 +183,10 @@ export default function GoogleClassroomWizardPage() {
 
   async function handleSelectCourse(course: GoogleCourse) {
     setSelectedCourse(course);
+    setSelectedCw(null);
+    setAssignmentId("");
+    setSubmissions([]);
+    setSelectedArtifactIds({});
     setBusy(true);
     setError("");
     setMessage("");
@@ -204,6 +208,8 @@ export default function GoogleClassroomWizardPage() {
     if (!selectedCourse) return;
     setSelectedCw(cw);
     setMaxScore(Number(cw.maxPoints || 10));
+    setSubmissions([]);
+    setSelectedArtifactIds({});
     setBusy(true);
     setError("");
     setMessage("");
@@ -313,21 +319,56 @@ export default function GoogleClassroomWizardPage() {
     const chosenIds = Object.entries(selectedArtifactIds)
       .filter(([, checked]) => checked)
       .map(([id]) => id);
+    const chosenSet = new Set(chosenIds);
+    const targets = submissions.filter((s) => {
+      if (s.submission.status === "not_submitted") return false;
+      if (chosenIds.length > 0 && s.artifacts && s.artifacts.length > 0) {
+        return s.artifacts.some((a) => chosenSet.has(a.id));
+      }
+      return true;
+    });
+
+    if (targets.length === 0) {
+      setError("ไม่พบนักเรียนที่ส่งงานตามไฟล์ที่เลือก");
+      setBusy(false);
+      return;
+    }
+
+    setGradeProgress({ done: 0, total: targets.length });
+    let gradedOk = 0;
+    let failedCnt = 0;
+
     try {
-      const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${assignmentId}/run-batch`, {
-        method: "POST",
-        body: JSON.stringify({
-          run_sync_inline: true,
-          selected_artifact_ids: chosenIds.length > 0 ? chosenIds : null,
-        }),
-      });
+      for (let i = 0; i < targets.length; i += 1) {
+        const stuSub = targets[i];
+        const chunkArtIds = (stuSub.artifacts || [])
+          .filter((a) => chosenSet.has(a.id))
+          .map((a) => a.id);
+        try {
+          const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${assignmentId}/run-batch`, {
+            method: "POST",
+            body: JSON.stringify({
+              submission_ids: [stuSub.submission.id],
+              selected_artifact_ids: chunkArtIds.length > 0 ? chunkArtIds : null,
+              run_sync_inline: true,
+            }),
+          });
+          gradedOk += res.queued_count;
+        } catch {
+          failedCnt += 1;
+        }
+        setGradeProgress({ done: i + 1, total: targets.length });
+      }
       await loadSubmissions(assignmentId);
-      setMessage(`ตรวจงานเสร็จสิ้น ${res.queued_count} คน (พร้อมผล % การใช้ AI)`);
+      setMessage(
+        `ตรวจงานเสร็จสิ้น ${gradedOk} คน${failedCnt > 0 ? ` (ข้าม/ผิดพลาด ${failedCnt} คน)` : ""} พร้อมผล % การใช้ AI เรียบร้อยแล้ว!`
+      );
       setStep(7);
     } catch (err) {
       setError(err instanceof Error ? err.message : "เริ่มตรวจงานไม่สำเร็จ");
     } finally {
       setBusy(false);
+      setGradeProgress(null);
     }
   }
 
@@ -690,6 +731,16 @@ export default function GoogleClassroomWizardPage() {
               <p className="text-xs text-[#7C6B99]">คลิกดูโค้ด/ผลรัน/เหตุผล % AI รายคน หรือส่งออกไฟล์ Excel ได้ทันที</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => {
+                  setSubmissions([]);
+                  setSelectedArtifactIds({});
+                  setStep(3);
+                }}
+                className="btn-kawaii-soft px-4 py-2 text-xs"
+              >
+                ← เลือกตรวจงานอื่นต่อ
+              </button>
               <button
                 onClick={() => assignmentId && downloadExcelReport("assignment", { assignment_id: assignmentId })}
                 className="btn-kawaii-peach px-4 py-2 text-xs"
