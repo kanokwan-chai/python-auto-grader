@@ -63,9 +63,13 @@ export default function GoogleClassroomWizardPage() {
   const [maxScore, setMaxScore] = useState<number>(10);
 
   const [busy, setBusy] = useState(false);
+  const [gradeProgress, setGradeProgress] = useState<{ done: number; total: number } | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const cacheKey = activeWorkspace ? `pygrader_wizard_${activeWorkspace.id}` : "";
+
+  // Hydrate wizard state from localStorage immediately
   const cacheKey = activeWorkspace ? `pygrader_wizard_${activeWorkspace.id}` : "";
 
   // Hydrate wizard state from localStorage immediately
@@ -87,6 +91,19 @@ export default function GoogleClassroomWizardPage() {
       // ignore
     }
   }, [cacheKey]);
+
+  // Save wizard state automatically
+  useEffect(() => {
+    if (!cacheKey || typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({ step, selectedConnId, courses, selectedCourse, coursework, selectedCw, assignmentId })
+      );
+    } catch {
+      // ignore
+    }
+  }, [cacheKey, step, selectedConnId, courses, selectedCourse, coursework, selectedCw, assignmentId]);
 
   // Save wizard state automatically
   useEffect(() => {
@@ -143,6 +160,35 @@ export default function GoogleClassroomWizardPage() {
   useEffect(() => {
     if (assignmentId && (step === 4 || step === 6 || step === 7) && submissions.length === 0) {
       loadSubmissions(assignmentId).catch(() => {});
+    }
+  }, [assignmentId, step, submissions.length, loadSubmissions]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.get("connected") === "1") {
+      setMessage(`เชื่อมต่อบัญชี Google (${qs.get("email") || ""}) สำเร็จแล้ว!`);
+      setStep(1);
+    }
+  }, []);
+
+  const loadSubmissions = useCallback(async (asgId: string) => {
+    if (!asgId) return;
+    const list = await apiFetch<SubmissionSummary[]>(`/assignments/${asgId}/submissions`);
+    setSubmissions(list);
+    // Default: select all artifacts
+    const nextSel: Record<string, boolean> = {};
+    list.forEach((s) => {
+      (s.artifacts || []).forEach((a) => {
+        nextSel[a.id] = true;
+      });
+    });
+    setSelectedArtifactIds(nextSel);
+  }, []);
+
+  useEffect(() => {
+    if (assignmentId && (step === 4 || step === 6 || step === 7) && submissions.length === 0) {
+      loadSubmissions(assignmentId).catch(() => { });
     }
   }, [assignmentId, step, submissions.length, loadSubmissions]);
 
@@ -312,21 +358,60 @@ export default function GoogleClassroomWizardPage() {
     const chosenIds = Object.entries(selectedArtifactIds)
       .filter(([, checked]) => checked)
       .map(([id]) => id);
+
+    // Filter to students who actually submitted (and have at least one selected artifact if any selected)
+    const chosenSet = new Set(chosenIds);
+    const targets = submissions.filter((s) => {
+      if (s.submission.status === "not_submitted") return false;
+      if (chosenIds.length > 0 && s.artifacts && s.artifacts.length > 0) {
+        return s.artifacts.some((a) => chosenSet.has(a.id));
+      }
+      return true;
+    });
+
+    if (targets.length === 0) {
+      setError("ไม่พบนักเรียนที่ส่งงานตามไฟล์ที่เลือก");
+      setBusy(false);
+      return;
+    }
+
+    setGradeProgress({ done: 0, total: targets.length });
+    let gradedOk = 0;
+    let failedCnt = 0;
+    const CHUNK_SIZE = 2;
+
     try {
-      const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${assignmentId}/run-batch`, {
-        method: "POST",
-        body: JSON.stringify({
-          run_sync_inline: true,
-          selected_artifact_ids: chosenIds.length > 0 ? chosenIds : null,
-        }),
-      });
+      for (let i = 0; i < targets.length; i += CHUNK_SIZE) {
+        const chunk = targets.slice(i, i + CHUNK_SIZE);
+        const subIds = chunk.map((s) => s.submission.id);
+        const chunkArtIds = chunk.flatMap((s) =>
+          (s.artifacts || []).filter((a) => chosenSet.has(a.id)).map((a) => a.id)
+        );
+        try {
+          const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${assignmentId}/run-batch`, {
+            method: "POST",
+            body: JSON.stringify({
+              submission_ids: subIds,
+              selected_artifact_ids: chunkArtIds.length > 0 ? chunkArtIds : null,
+              run_sync_inline: true,
+            }),
+          });
+          gradedOk += res.queued_count;
+        } catch {
+          failedCnt += chunk.length;
+        }
+        setGradeProgress({ done: Math.min(i + chunk.length, targets.length), total: targets.length });
+      }
       await loadSubmissions(assignmentId);
-      setMessage(`ตรวจงานเสร็จสิ้น ${res.queued_count} คน (พร้อมผล % การใช้ AI)`);
+      setMessage(
+        `ตรวจงานเสร็จสิ้น ${gradedOk} คน${failedCnt > 0 ? ` (ข้าม/ผิดพลาด ${failedCnt} คน)` : ""} พร้อมผล % การใช้ AI เรียบร้อยแล้ว!`
+      );
       setStep(7);
     } catch (err) {
       setError(err instanceof Error ? err.message : "เริ่มตรวจงานไม่สำเร็จ");
     } finally {
       setBusy(false);
+      setGradeProgress(null);
     }
   }
 
@@ -680,8 +765,26 @@ export default function GoogleClassroomWizardPage() {
             ใบงาน: <strong>{selectedCw?.title || "งานที่เลือก"}</strong> • ไฟล์ที่เลือกตรวจ: <strong>{chosenCount} ไฟล์</strong>
           </p>
           <button onClick={handleStartBatchGrading} disabled={busy} className="btn-kawaii px-8 py-3.5 text-sm">
-            <Play className="w-4 h-4" /> {busy ? "กำลังตรวจโค้ดและคำนวณคะแนน..." : "เริ่มตรวจงานทั้งหมดเลย!"}
+            <Play className="w-4 h-4" />{" "}
+            {gradeProgress
+              ? `กำลังตรวจงาน... ${gradeProgress.done} / ${gradeProgress.total} คน`
+              : busy
+              ? "กำลังเตรียมตรวจงาน..."
+              : "เริ่มตรวจงานทั้งหมดเลย!"}
           </button>
+          {gradeProgress && (
+            <div className="space-y-1.5 pt-2">
+              <div className="w-full h-3 rounded-full bg-[#F4ECFE] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#B895E8] to-[#9870D4] transition-all duration-300"
+                  style={{ width: `${Math.round((gradeProgress.done / Math.max(gradeProgress.total, 1)) * 100)}%` }}
+                />
+              </div>
+              <div className="text-xs text-[#7C6B99]">
+                ตรวจทีละชุดย่อยเพื่อความเสถียร ({Math.round((gradeProgress.done / Math.max(gradeProgress.total, 1)) * 100)}%)
+              </div>
+            </div>
+          )}
         </div>
       )}
 

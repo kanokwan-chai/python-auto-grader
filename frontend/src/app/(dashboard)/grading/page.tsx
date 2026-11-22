@@ -57,12 +57,19 @@ export default function GradingQueuePage() {
     setRunningBatch(true);
     setError("");
     setStatusMsg("");
+    const targets = submissions.filter((s) => s.submission.status !== "not_submitted");
+    let done = 0;
     try {
-      const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${selectedAsgId}/run-batch`, {
-        method: "POST",
-        body: JSON.stringify({ run_sync_inline: true }),
-      });
-      setStatusMsg(`ตรวจงานอัตโนมัติเรียบร้อยแล้ว ${res.queued_count} รายการ`);
+      for (let i = 0; i < targets.length; i += 2) {
+        const subIds = targets.slice(i, i + 2).map((s) => s.submission.id);
+        const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${selectedAsgId}/run-batch`, {
+          method: "POST",
+          body: JSON.stringify({ submission_ids: subIds, run_sync_inline: true }),
+        });
+        done += res.queued_count;
+        setStatusMsg(`กำลังตรวจงาน... ${Math.min(i + 2, targets.length)} / ${targets.length} คน`);
+      }
+      setStatusMsg(`ตรวจงานอัตโนมัติเรียบร้อยแล้ว ${done} รายการ`);
       await loadSubmissions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "เริ่มตรวจงานกลุ่มไม่สำเร็จ");
