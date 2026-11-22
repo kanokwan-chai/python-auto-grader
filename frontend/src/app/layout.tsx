@@ -23,13 +23,13 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Python Auto Grader — ระบบตรวจงาน Python อัตโนมัติ",
   description:
-    "แพลตฟอร์มตรวจงานเขียนโปรแกรมภาษา Python อัตโนมัติ เชื่อมต่อ Google Classroom, Colab, Sandbox และ AI Feedback ในสไตล์ Pastel Kawaii 3D",
+    "แพลตฟอร์มตรวจงานเขียนโปรแกรมภาษา Python อัตโนมัติ เชื่อมต่อ Google Classroom, Colab, PDF/Canva, Sandbox และ AI Feedback",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th" className={`${anuphan.variable} ${mitr.variable} ${jetbrains.variable}`}>
-      <body className="min-h-screen kawaii-bg text-[#4A3869] antialiased selection:bg-[#E8D9FA] selection:text-[#684A96]">
+      <body className="min-h-screen kawaii-bg text-[#F3EEFF] antialiased selection:bg-[#B44CFF]/40 selection:text-white">
         {children}
       </body>
     </html>
