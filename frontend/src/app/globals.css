@@ -1,22 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  /* Cosmic Neon-Pastel Purple Theme (matching reference UI) */
-  --bg-deep: #120B29;
-  --bg-mid: #1C113E;
-  --bg-card: rgba(34, 21, 70, 0.86);
-  --bg-card-inner: rgba(24, 14, 52, 0.82);
-  --border-glow: rgba(167, 139, 250, 0.30);
-  --purple-neon: #9B51E0;
-  --pink-neon: #E857B5;
-  --orange-glow: #F97316;
-  --emerald-glow: #10B981;
-  --text-primary: #F8F5FF;
-  --text-secondary: #C4B5E6;
+  /* Light Pastel Kawaii + Vibrant Glossy Accents */
+  --soft-lavender: #E8D9FA;
+  --pastel-purple: #B895E8;
+  --medium-purple: #8B5CF6;
+  --deep-lavender: #4C1D95;
+  --baby-pink: #F8E1EE;
+  --soft-peach: #FFF1E4;
+  --cream-white: #FFFAF5;
+  --pure-white: #FFFFFF;
+
+  --text-primary: #241642;
+  --text-secondary: #5B4B7A;
 
   --radius-card: 1.5rem;
-  --shadow-card: 0 14px 36px -8px rgba(7, 3, 20, 0.65), 0 0 24px -6px rgba(155, 81, 224, 0.25);
-  --shadow-pill: 0 8px 22px -4px rgba(180, 76, 255, 0.55);
+  --shadow-card: 0 10px 30px -6px rgba(124, 58, 237, 0.12), 0 4px 12px -2px rgba(232, 87, 181, 0.10);
+  --shadow-pill: 0 8px 20px -4px rgba(155, 81, 224, 0.42);
 }
 
 body {
@@ -30,37 +30,36 @@ h1, h2, h3, .font-heading {
   letter-spacing: -0.01em;
 }
 
-/* Deep Cosmic Purple-Indigo Gradient Canvas */
+/* Bright Dreamy Pastel Lavender-Pink-Cream Canvas */
 .kawaii-bg {
   background:
-    radial-gradient(circle at 12% 15%, rgba(168, 85, 247, 0.26) 0%, transparent 40%),
-    radial-gradient(circle at 86% 18%, rgba(232, 87, 181, 0.22) 0%, transparent 38%),
-    radial-gradient(circle at 75% 88%, rgba(99, 102, 241, 0.24) 0%, transparent 44%),
-    radial-gradient(circle at 18% 85%, rgba(192, 132, 252, 0.16) 0%, transparent 42%),
-    linear-gradient(135deg, #110926 0%, #1B103C 48%, #150C31 100%);
+    radial-gradient(circle at 12% 14%, rgba(232, 217, 250, 0.78) 0%, transparent 42%),
+    radial-gradient(circle at 88% 16%, rgba(248, 225, 238, 0.78) 0%, transparent 40%),
+    radial-gradient(circle at 78% 86%, rgba(255, 241, 228, 0.88) 0%, transparent 46%),
+    radial-gradient(circle at 16% 85%, rgba(220, 235, 250, 0.62) 0%, transparent 42%),
+    linear-gradient(135deg, #F7F1FF 0%, #FFF4FA 48%, #FFFAF5 100%);
   background-attachment: fixed;
 }
 
-/* Glowing Translucent Cosmic Card */
+/* Crisp Pure White Rounded Card */
 .card-soft {
-  background: linear-gradient(155deg, rgba(40, 25, 82, 0.88) 0%, rgba(26, 16, 56, 0.92) 100%);
-  border: 1.5px solid var(--border-glow);
+  background: #FFFFFF;
+  border: 1.5px solid #E9DDFB;
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
-  backdrop-filter: blur(12px);
-  color: #F8F5FF;
+  color: #241642;
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .card-kawaii-tint {
-  background: linear-gradient(145deg, rgba(55, 31, 108, 0.92) 0%, rgba(28, 17, 62, 0.95) 100%);
-  border: 1.5px solid rgba(196, 181, 253, 0.38);
+  background: linear-gradient(145deg, #FFFFFF 0%, #FAF5FF 55%, #FFF4FA 100%);
+  border: 1.5px solid #E9DDFB;
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
-  color: #F8F5FF;
+  color: #241642;
 }
 
-/* Primary Glowing Pink-Purple Pill Button */
+/* Vibrant Pink-Purple Pill Button */
 .btn-kawaii {
   display: inline-flex;
   align-items: center;
@@ -76,32 +75,31 @@ h1, h2, h3, .font-heading {
 
 .btn-kawaii:hover:not(:disabled) {
   transform: translateY(-1.5px);
-  box-shadow: 0 12px 28px -4px rgba(232, 87, 181, 0.58);
-  filter: brightness(1.06);
+  box-shadow: 0 12px 24px -4px rgba(155, 81, 224, 0.52);
+  filter: brightness(1.04);
 }
 
 .btn-kawaii:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-/* Soft Translucent Violet Pill Button */
+/* Crisp Soft Lavender Pill Button */
 .btn-kawaii-soft {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   border-radius: 9999px;
-  background: rgba(139, 92, 246, 0.20);
-  border: 1px solid rgba(196, 181, 253, 0.36);
-  color: #EDE9FE !important;
+  background: #F3EBFF;
+  border: 1.5px solid #DDD0F9;
+  color: #4C1D95 !important;
   font-weight: 600;
-  transition: transform 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+  transition: transform 0.18s ease, background-color 0.18s ease;
 }
 
 .btn-kawaii-soft:hover:not(:disabled) {
-  background: rgba(139, 92, 246, 0.34);
-  border-color: rgba(216, 180, 254, 0.65);
+  background: #E8D9FA;
   transform: translateY(-1px);
 }
 
@@ -115,14 +113,14 @@ h1, h2, h3, .font-heading {
   background: linear-gradient(135deg, #FBBF24 0%, #F97316 100%);
   color: #FFFFFF !important;
   font-weight: 600;
-  box-shadow: 0 8px 20px -4px rgba(249, 115, 22, 0.48);
+  box-shadow: 0 8px 18px -4px rgba(249, 115, 22, 0.42);
   transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
 }
 
 .btn-kawaii-peach:hover:not(:disabled) {
   transform: translateY(-1.5px);
-  box-shadow: 0 12px 24px -4px rgba(249, 115, 22, 0.6);
-  filter: brightness(1.05);
+  box-shadow: 0 12px 22px -4px rgba(249, 115, 22, 0.52);
+  filter: brightness(1.04);
 }
 
 /* Emerald Pass / Approve Pill Button */
@@ -135,103 +133,53 @@ h1, h2, h3, .font-heading {
   background: linear-gradient(135deg, #34D399 0%, #10B981 100%);
   color: #FFFFFF !important;
   font-weight: 600;
-  box-shadow: 0 8px 20px -4px rgba(16, 185, 129, 0.45);
+  box-shadow: 0 8px 18px -4px rgba(16, 185, 129, 0.42);
   transition: transform 0.18s ease, filter 0.18s ease;
 }
 
 .btn-kawaii-green:hover:not(:disabled) {
   transform: translateY(-1.5px);
-  filter: brightness(1.06);
+  filter: brightness(1.05);
 }
 
-/* Dark Cosmic Form Inputs */
+/* High-Contrast Light Form Inputs */
 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
 select,
 textarea {
   border-radius: 0.95rem;
-  border-color: rgba(167, 139, 250, 0.35) !important;
-  background-color: rgba(20, 12, 46, 0.88) !important;
-  color: #F8F5FF !important;
+  border-color: #DDD0F9;
+  background-color: #FFFFFF;
+  color: #241642;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 input::placeholder,
 textarea::placeholder {
-  color: #9D8AC7 !important;
-}
-
-select option {
-  background-color: #1B103C;
-  color: #F8F5FF;
+  color: #8C7CA8;
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
 select:focus,
 textarea:focus {
   outline: none;
-  border-color: #C084FC !important;
-  box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.28);
+  border-color: #9B51E0;
+  box-shadow: 0 0 0 3px rgba(155, 81, 224, 0.22);
 }
 
-/* Cosmic Tables */
+/* High-Contrast Light Tables */
 table thead {
-  background: linear-gradient(90deg, rgba(124, 58, 237, 0.28) 0%, rgba(232, 87, 181, 0.18) 100%) !important;
-  color: #E9D5FF !important;
+  background: linear-gradient(90deg, #F3EBFF 0%, #FCECF6 100%);
+  color: #4C1D95;
 }
 
 table tbody tr {
-  background-color: rgba(24, 14, 54, 0.55) !important;
+  background-color: #FFFFFF;
+  color: #241642;
   transition: background-color 0.15s ease;
 }
 
 table tbody tr:hover {
-  background-color: rgba(139, 92, 246, 0.16) !important;
-}
-
-/* Harmonize legacy light utility classes inside dark cosmic pages so ALL sub-pages stay crisp & readable */
-main .text-\[\#1F1B2E\],
-main .text-\[\#4A3869\],
-main .text-\[\#684A96\] {
-  color: #F8F5FF !important;
-}
-
-main .text-\[\#645D7B\],
-main .text-\[\#7C6B99\] {
-  color: #C4B5E6 !important;
-}
-
-main .bg-\[\#FAF8F5\],
-main .bg-\[\#FFFAF5\],
-main .bg-white {
-  background-color: rgba(26, 15, 58, 0.78) !important;
-  color: #F8F5FF;
-}
-
-main .bg-\[\#F2EEFF\],
-main .bg-\[\#F4ECFE\],
-main .bg-\[\#F2EEFF\]\/70,
-main .bg-\[\#F2EEFF\]\/60,
-main .bg-\[\#F2EEFF\]\/50 {
-  background-color: rgba(139, 92, 246, 0.22) !important;
-  color: #EDE9FE !important;
-}
-
-main .border-\[\#ECE7F6\],
-main .border-\[\#F2EEFF\],
-main .border-\[\#E8D9FA\],
-main .border-\[\#DDD4FF\] {
-  border-color: rgba(167, 139, 250, 0.26) !important;
-}
-
-main .divide-\[\#F2EEFF\] > :not([hidden]) ~ :not([hidden]),
-main .divide-\[\#F4ECFE\] > :not([hidden]) ~ :not([hidden]) {
-  border-color: rgba(167, 139, 250, 0.18) !important;
-}
-
-main pre {
-  background-color: #110A26 !important;
-  color: #E2E8F0 !important;
-  border-color: rgba(167, 139, 250, 0.25) !important;
+  background-color: #FAF6FF;
 }
 
 .code-font {

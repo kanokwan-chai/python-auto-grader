@@ -29,7 +29,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="th" className={`${anuphan.variable} ${mitr.variable} ${jetbrains.variable}`}>
-      <body className="min-h-screen kawaii-bg text-[#F3EEFF] antialiased selection:bg-[#B44CFF]/40 selection:text-white">
+      <body className="min-h-screen kawaii-bg text-[#241642] antialiased selection:bg-[#E8D9FA] selection:text-[#4C1D95]">
         {children}
       </body>
     </html>
