@@ -1,0 +1,28 @@
+# Environment secrets — NEVER commit!
+.env
+.env.local
+.env.*.local
+frontend/.env
+frontend/.env.local
+backend/.env
+
+# Node / Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.db
+*.sqlite3
+
+# Local storage & OS junk
+/tmp/
+.DS_Store
+Thumbs.db

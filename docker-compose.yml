@@ -1,0 +1,125 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pyautograder
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./supabase/migrations/20261122000001_initial_schema.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pyautograder"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app_net
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app_net
+
+  sandbox:
+    build:
+      context: ./sandbox
+      dockerfile: Dockerfile
+    environment:
+      SANDBOX_API_KEY: ${SANDBOX_API_KEY:-dev-sandbox-key}
+      SANDBOX_DOCKER_IMAGE: ${SANDBOX_DOCKER_IMAGE:-pyautograder-student-python:3.11}
+      SANDBOX_DOCKER_RUNTIME: ${SANDBOX_DOCKER_RUNTIME:-}
+      SANDBOX_MAX_CONCURRENT_JOBS: ${SANDBOX_MAX_CONCURRENT_JOBS:-8}
+      SANDBOX_CPU_LIMIT: ${SANDBOX_CPU_LIMIT:-0.5}
+      SANDBOX_MEMORY_LIMIT: ${SANDBOX_MEMORY_LIMIT:-128m}
+      SANDBOX_PIDS_LIMIT: ${SANDBOX_PIDS_LIMIT:-64}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - sandbox_net
+    # NOTE: In production, deploy sandbox on a completely separate VM/host with gVisor (runsc)
+    # and zero access to the database or backend credentials.
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/pyautograder}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      SANDBOX_SERVICE_URL: http://sandbox:8080
+      SANDBOX_API_KEY: ${SANDBOX_API_KEY:-dev-sandbox-key}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sandbox:
+        condition: service_started
+    networks:
+      - app_net
+      - sandbox_net
+
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.core.celery_app.celery_app worker --loglevel=info --concurrency=4
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/pyautograder}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/1}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/2}
+      SANDBOX_SERVICE_URL: http://sandbox:8080
+      SANDBOX_API_KEY: ${SANDBOX_API_KEY:-dev-sandbox-key}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      sandbox:
+        condition: service_started
+    networks:
+      - app_net
+      - sandbox_net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - app_net
+
+volumes:
+  pgdata:
+
+networks:
+  app_net:
+  sandbox_net:

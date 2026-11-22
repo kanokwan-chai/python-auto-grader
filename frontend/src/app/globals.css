@@ -1,0 +1,181 @@
+@import "tailwindcss";
+
+:root {
+  /* Primary Palette — Pastel Kawaii 3D */
+  --soft-lavender: #E8D9FA;
+  --pastel-purple: #B895E8;
+  --medium-purple: #9870D4;
+  --deep-lavender: #684A96;
+
+  /* Secondary Palette */
+  --baby-pink: #F8E1EE;
+  --soft-peach: #FFF1E4;
+  --cream-white: #FFFAF5;
+  --pure-white: #FFFFFF;
+
+  /* Accent Palette */
+  --mint-green: #DDF1E7;
+  --soft-yellow: #FFE5A9;
+  --powder-blue: #DCEBFA;
+  --light-pink: #F7DCE8;
+
+  /* Semantic Text */
+  --text-primary: #4A3869;
+  --text-secondary: #7C6B99;
+
+  /* Radii & Shadows */
+  --radius-card: 1.75rem;
+  --radius-input: 1rem;
+  --shadow-kawaii: 0 12px 32px -6px rgba(152, 112, 212, 0.14), 0 4px 12px -2px rgba(248, 225, 238, 0.35);
+  --shadow-pill: 0 8px 20px -4px rgba(152, 112, 212, 0.32);
+}
+
+body {
+  font-family: var(--font-anuphan), system-ui, -apple-system, sans-serif;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .font-heading {
+  font-family: var(--font-mitr), var(--font-anuphan), sans-serif;
+  letter-spacing: -0.01em;
+}
+
+/* Dreamy Pastel Gradient Canvas */
+.kawaii-bg {
+  background:
+    radial-gradient(circle at 12% 14%, rgba(232, 217, 250, 0.72) 0%, transparent 42%),
+    radial-gradient(circle at 88% 18%, rgba(248, 225, 238, 0.75) 0%, transparent 40%),
+    radial-gradient(circle at 78% 86%, rgba(255, 241, 228, 0.85) 0%, transparent 46%),
+    radial-gradient(circle at 18% 84%, rgba(220, 235, 250, 0.55) 0%, transparent 42%),
+    linear-gradient(135deg, #F8F2FF 0%, #FFF5FA 48%, #FFFAF5 100%);
+  background-attachment: fixed;
+}
+
+/* Soft Rounded Kawaii Card */
+.card-soft {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1.5px solid rgba(232, 217, 250, 0.85);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-kawaii);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.card-kawaii-tint {
+  background: linear-gradient(145deg, #FFFFFF 0%, #FFFAF5 60%, #F8E1EE 150%);
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-kawaii);
+}
+
+/* Capsule / Pill Primary Button */
+.btn-kawaii {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #B895E8 0%, #9870D4 100%);
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: var(--shadow-pill);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.btn-kawaii:hover:not(:disabled) {
+  transform: translateY(-1.5px);
+  box-shadow: 0 12px 24px -4px rgba(152, 112, 212, 0.42);
+  filter: brightness(1.03);
+}
+
+.btn-kawaii:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-kawaii:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-kawaii-soft {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background: #F4ECFE;
+  border: 1.5px solid #E8D9FA;
+  color: #684A96;
+  font-weight: 600;
+  transition: transform 0.18s ease, background-color 0.18s ease;
+}
+
+.btn-kawaii-soft:hover:not(:disabled) {
+  background: #E8D9FA;
+  transform: translateY(-1px);
+}
+
+.btn-kawaii-peach {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #FFC4A3 0%, #FFA686 100%);
+  color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 8px 18px -4px rgba(255, 166, 134, 0.42);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.btn-kawaii-peach:hover:not(:disabled) {
+  transform: translateY(-1.5px);
+  box-shadow: 0 12px 22px -4px rgba(255, 166, 134, 0.52);
+}
+
+/* Rounded Kawaii Form Inputs */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+select,
+textarea {
+  border-radius: 1rem;
+  border-color: #E8D9FA;
+  background-color: #FFFFFF;
+  color: #4A3869;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: #B895E8;
+  box-shadow: 0 0 0 3.5px rgba(184, 149, 232, 0.25);
+}
+
+/* Consistent Pastel Table Polish */
+table thead {
+  background: linear-gradient(90deg, #F3EBFE 0%, #FAF0F7 100%);
+  color: #684A96;
+}
+
+table tbody tr {
+  background-color: #FFFFFF;
+  transition: background-color 0.15s ease;
+}
+
+table tbody tr:hover {
+  background-color: #FFFAF5;
+}
+
+.code-font {
+  font-family: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+}
+
+.animate-float-slow {
+  animation: floatSlow 4.5s ease-in-out infinite;
+}
