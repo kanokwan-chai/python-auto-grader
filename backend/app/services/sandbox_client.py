@@ -44,10 +44,22 @@ class SandboxClient:
             "entry_file": entry_file,
         }
         headers = {"X-Sandbox-Key": self.api_key}
-        async with httpx.AsyncClient(timeout=timeout_seconds + 15.0) as client:
-            resp = await client.post(f"{self.base_url}/execute", json=payload, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=timeout_seconds + 15.0) as client:
+                resp = await client.post(f"{self.base_url}/execute", json=payload, headers=headers)
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            return SandboxExecutionResult(
+                execution_id="sandbox-unavailable",
+                stdout="",
+                stderr=f"Sandbox service unreachable ({self.base_url}): {exc}",
+                exit_code=-1,
+                timed_out=False,
+                execution_time_ms=0,
+                memory_usage_kb=None,
+                runtime_used="unavailable",
+            )
         return SandboxExecutionResult(
             execution_id=data["execution_id"],
             stdout=data["stdout"],
