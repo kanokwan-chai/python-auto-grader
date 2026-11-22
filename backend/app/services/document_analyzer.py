@@ -83,22 +83,22 @@ def analyze_pdf_bytes(pdf_bytes: bytes, filename: str = "document.pdf") -> Docum
         raise DocumentParseError(f"ไม่สามารถอ่านไฟล์ PDF '{filename}' ได้: {exc}") from exc
 
     meta = reader.metadata or {}
-    creator = str(meta.get("/Creator") or "").strip() or None
-    producer = str(meta.get("/Producer") or "").strip() or None
-    title = str(meta.get("/Title") or "").strip() or filename
+    creator = str(meta.get("/Creator") or "").replace("\x00", "").strip() or None
+    producer = str(meta.get("/Producer") or "").replace("\x00", "").strip() or None
+    title = str(meta.get("/Title") or "").replace("\x00", "").strip() or filename
 
     is_canva = any("canva" in (val or "").lower() for val in (creator, producer))
 
     pages_text: List[str] = []
     for page in reader.pages:
         try:
-            txt = page.extract_text() or ""
+            txt = (page.extract_text() or "").replace("\x00", "")
         except Exception:
             txt = ""
         if txt.strip():
             pages_text.append(txt.strip())
 
-    full_text = "\n\n".join(pages_text)
+    full_text = "\n\n".join(pages_text).replace("\x00", "")
     words = re.findall(r"[\wก-๙]+", full_text)
     notes: List[str] = []
     if is_canva:

@@ -52,6 +52,17 @@ from app.services.storage import StorageService
 from app.services.test_engine import TestCaseSpec, run_test_cases
 
 
+def _strip_nulls(value: Any) -> Any:
+    """Recursively remove NUL bytes (\\x00) which PostgreSQL TEXT/JSONB rejects."""
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {k: _strip_nulls(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_strip_nulls(v) for v in value]
+    return value
+
+
 async def _resolve_code_from_artifacts(
     db: AsyncSession,
     assignment: Assignment,
@@ -484,6 +495,10 @@ async def execute_grading_run(
                 )
             )
 
+        run.ast_summary = _strip_nulls(run.ast_summary)
+        run.runtime_summary = _strip_nulls(run.runtime_summary)
+        if run.ai_feedback is not None:
+            run.ai_feedback = _strip_nulls(run.ai_feedback)
         run.automated_score = rubric_eval["automated_score"]
         run.ai_suggested_score = rubric_eval["ai_suggested_score"]
         run.final_score = rubric_eval["final_score"]
@@ -497,9 +512,14 @@ async def execute_grading_run(
         return run
 
     except Exception as exc:
-        run.status = "failed"
-        run.error_message = str(exc)
-        run.completed_at = datetime.now(timezone.utc)
-        submission.status = "error"
-        await db.commit()
+        await db.rollback()
+        run = await db.get(GradingRun, grading_run_id)
+        if run:
+            run.status = "failed"
+            run.error_message = str(exc).replace("\x00", "")[:2000]
+            run.completed_at = datetime.now(timezone.utc)
+            sub = await db.get(Submission, run.submission_id)
+            if sub:
+                sub.status = "error"
+            await db.commit()
         return run
