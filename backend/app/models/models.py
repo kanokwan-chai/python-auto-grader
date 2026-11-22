@@ -20,10 +20,32 @@ from sqlalchemy import (
     TypeDecorator,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import ARRAY as PG_ARRAY, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+
+class StringArray(TypeDecorator):
+    """PostgreSQL native TEXT[] with automatic JSON list fallback on SQLite."""
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(PG_ARRAY(Text))
+        return dialect.type_descriptor(JSON)
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return []
+        return list(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return []
+        return list(value)
 
 
 class UUIDStr(TypeDecorator):
@@ -108,7 +130,7 @@ class GoogleConnection(Base):
     encrypted_access_token: Mapped[str] = mapped_column(Text, nullable=False)
     encrypted_refresh_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     token_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    scopes: Mapped[List[str]] = mapped_column(JSON, default=list, nullable=False)
+    scopes: Mapped[List[str]] = mapped_column(StringArray(), default=list, nullable=False)
     has_write_scope: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="connected", nullable=False)
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -210,7 +232,7 @@ class AssignmentSubmissionSetting(Base):
     max_files_per_submission: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     max_zip_extracted_files: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     max_zip_uncompressed_mb: Mapped[int] = mapped_column(Integer, default=25, nullable=False)
-    allowed_zip_extensions: Mapped[List[str]] = mapped_column(JSON, default=lambda: [".py", ".ipynb", ".txt", ".json", ".csv"], nullable=False)
+    allowed_zip_extensions: Mapped[List[str]] = mapped_column(StringArray(), default=lambda: [".py", ".ipynb", ".txt", ".json", ".csv"], nullable=False)
     entry_file_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     portal_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
