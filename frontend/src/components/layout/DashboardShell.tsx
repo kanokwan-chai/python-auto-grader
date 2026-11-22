@@ -24,14 +24,11 @@ import { useApp } from "@/components/providers/AppProvider";
 import { apiFetch } from "@/lib/api";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/classrooms", label: "ห้องเรียนของฉัน", icon: School },
-  { href: "/courses", label: "รายวิชา", icon: BookOpen },
-  { href: "/assignments", label: "จัดการใบงาน", icon: FileCode2 },
-  { href: "/grading", label: "ตรวจงาน", icon: CheckSquare },
-  { href: "/scores", label: "ผลคะแนน", icon: Award },
-  { href: "/reports", label: "รายงาน", icon: BarChart3 },
-  { href: "/google-classroom", label: "Google Classroom", icon: Cloud },
+  { href: "/dashboard", label: "ภาพรวม (Dashboard)", icon: LayoutDashboard },
+  { href: "/google-classroom", label: "ดึงงาน Classroom", icon: Cloud },
+  { href: "/assignments", label: "ใบงาน & เกณฑ์ตรวจ", icon: FileCode2 },
+  { href: "/grading", label: "ตรวจงาน & คะแนน", icon: CheckSquare },
+  { href: "/reports", label: "ส่งออก Excel", icon: BarChart3 },
   { href: "/settings", label: "ตั้งค่าระบบ", icon: Settings },
 ];
 

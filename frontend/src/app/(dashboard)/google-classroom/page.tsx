@@ -47,6 +47,39 @@ export default function GoogleClassroomPage() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  const cacheKey = activeWorkspace ? `pygrader_gc_cache_${activeWorkspace.id}` : "";
+
+  // Restore saved Google Classroom state immediately so user never loses courses/coursework
+  useEffect(() => {
+    if (!cacheKey || typeof window === "undefined") return;
+    try {
+      const saved = localStorage.getItem(cacheKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.selectedConnId) setSelectedConnId(parsed.selectedConnId);
+        if (Array.isArray(parsed.courses)) setCourses(parsed.courses);
+        if (parsed.selectedCourseId) setSelectedCourseId(parsed.selectedCourseId);
+        if (Array.isArray(parsed.coursework)) setCoursework(parsed.coursework);
+        if (parsed.importedAssignmentId) setImportedAssignmentId(parsed.importedAssignmentId);
+      }
+    } catch {
+      // ignore corrupted cache
+    }
+  }, [cacheKey]);
+
+  // Persist Google Classroom state automatically on change
+  useEffect(() => {
+    if (!cacheKey || typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({ selectedConnId, courses, selectedCourseId, coursework, importedAssignmentId })
+      );
+    } catch {
+      // ignore quota errors
+    }
+  }, [cacheKey, selectedConnId, courses, selectedCourseId, coursework, importedAssignmentId]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const qs = new URLSearchParams(window.location.search);

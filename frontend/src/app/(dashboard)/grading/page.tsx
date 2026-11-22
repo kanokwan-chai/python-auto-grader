@@ -2,9 +2,9 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Play, RefreshCw, Eye, SlidersHorizontal } from "lucide-react";
+import { CloudUpload, Download, Play, RefreshCw, Eye, SlidersHorizontal } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, downloadExcelReport } from "@/lib/api";
 import type { Assignment, SubmissionSummary } from "@/lib/types";
 
 export default function GradingQueuePage() {
@@ -19,7 +19,9 @@ export default function GradingQueuePage() {
   useEffect(() => {
     if (!activeWorkspace) return;
     const qs = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-    const initialAsgId = qs?.get("assignment_id") || "";
+    const initialAsgId =
+      qs?.get("assignment_id") ||
+      (typeof window !== "undefined" ? localStorage.getItem(`pygrader_last_asg_${activeWorkspace.id}`) || "" : "");
     apiFetch<Assignment[]>("/assignments").then((list) => {
       setAssignments(list);
       if (initialAsgId && list.some((a) => a.id === initialAsgId)) {
@@ -29,6 +31,12 @@ export default function GradingQueuePage() {
       }
     });
   }, [activeWorkspace]);
+
+  useEffect(() => {
+    if (activeWorkspace && selectedAsgId && typeof window !== "undefined") {
+      localStorage.setItem(`pygrader_last_asg_${activeWorkspace.id}`, selectedAsgId);
+    }
+  }, [activeWorkspace, selectedAsgId]);
 
   const loadSubmissions = useCallback(async () => {
     if (!selectedAsgId) return;
@@ -73,6 +81,30 @@ export default function GradingQueuePage() {
     }
   }
 
+  async function handleExportExcel() {
+    if (!selectedAsgId) return;
+    setError("");
+    try {
+      await downloadExcelReport("assignment", { assignment_id: selectedAsgId });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ส่งออก Excel ไม่สำเร็จ");
+    }
+  }
+
+  async function handleSyncClassroom() {
+    if (!selectedAsgId) return;
+    setError("");
+    setStatusMsg("");
+    try {
+      const res = await apiFetch<{ synced: number; failed: number }>(`/google/grade-sync/${selectedAsgId}`, {
+        method: "POST",
+      });
+      setStatusMsg(`ส่งคะแนนกลับ Google Classroom แล้ว: สำเร็จ ${res.synced} รายการ, ไม่สำเร็จ ${res.failed} รายการ`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ส่งคะแนนกลับ Google Classroom ไม่สำเร็จ");
+    }
+  }
+
   const currentAsg = assignments.find((a) => a.id === selectedAsgId);
 
   return (
@@ -97,12 +129,28 @@ export default function GradingQueuePage() {
           </select>
 
           {selectedAsgId && (
-            <Link
-              href={`/assignments/${selectedAsgId}/criteria`}
-              className="btn-kawaii-soft px-3.5 py-2 text-xs font-semibold"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" /> ตั้งเกณฑ์ตรวจ
-            </Link>
+            <>
+              <Link
+                href={`/assignments/${selectedAsgId}/criteria`}
+                className="btn-kawaii-soft px-3.5 py-2 text-xs font-semibold"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" /> ตั้งเกณฑ์ตรวจ
+              </Link>
+              <button
+                onClick={handleExportExcel}
+                className="btn-kawaii-peach px-3.5 py-2 text-xs font-semibold"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Excel
+              </button>
+              {currentAsg?.google_coursework_id && (
+                <button
+                  onClick={handleSyncClassroom}
+                  className="btn-kawaii-soft px-3.5 py-2 text-xs font-semibold"
+                >
+                  <CloudUpload className="w-3.5 h-3.5" /> ส่งคะแนนกลับ Classroom
+                </button>
+              )}
+            </>
           )}
 
           <button

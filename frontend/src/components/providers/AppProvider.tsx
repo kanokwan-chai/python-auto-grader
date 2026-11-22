@@ -25,10 +25,32 @@ const AppContext = createContext<AppContextValue>({
 });
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspaceId, setActiveWsIdState] = useState<string>("");
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<UserProfile | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("pygrader_user_cache");
+      return raw ? (JSON.parse(raw) as UserProfile) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("pygrader_workspaces_cache");
+      return raw ? (JSON.parse(raw) as Workspace[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [activeWorkspaceId, setActiveWsIdState] = useState<string>(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("pygrader_workspace_id") || "";
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return !localStorage.getItem("pygrader_user_cache");
+  });
 
   const setActiveWorkspaceId = useCallback((id: string) => {
     setActiveWsIdState(id);
@@ -51,6 +73,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       });
       setUser(data.user);
       setWorkspaces(data.workspaces);
+      if (typeof window !== "undefined") {
+        localStorage.setItem("pygrader_user_cache", JSON.stringify(data.user));
+        localStorage.setItem("pygrader_workspaces_cache", JSON.stringify(data.workspaces));
+      }
       const saved = typeof window !== "undefined" ? localStorage.getItem("pygrader_workspace_id") : "";
       const valid = data.workspaces.find((w) => w.id === saved) || data.workspaces[0];
       if (valid) {
@@ -59,6 +85,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {
       setUser(null);
       setWorkspaces([]);
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("pygrader_user_cache");
+        localStorage.removeItem("pygrader_workspaces_cache");
+      }
     } finally {
       setLoading(false);
     }
@@ -68,6 +98,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typeof window !== "undefined") {
       localStorage.removeItem("pygrader_token");
       localStorage.removeItem("pygrader_workspace_id");
+      localStorage.removeItem("pygrader_user_cache");
+      localStorage.removeItem("pygrader_workspaces_cache");
     }
     setUser(null);
     setWorkspaces([]);
