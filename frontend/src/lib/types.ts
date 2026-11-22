@@ -97,6 +97,13 @@ export interface SubmissionSummary {
     student_code?: string | null;
   };
   artifact_types: string[];
+  artifacts?: Array<{
+    id: string;
+    artifact_type: string;
+    original_filename?: string | null;
+    colab_url?: string | null;
+    fetch_status: string;
+  }>;
   ai_usage_percent?: number | null;
 }
 

@@ -204,33 +204,42 @@ async def import_google_course(
         db.add(cls)
         await db.flush()
 
+    # Pre-load existing students & enrollments in 2 batched queries (eliminates N+1 latency)
+    existing_students = (
+        await db.execute(select(Student).where(Student.workspace_id == actor.workspace_id))
+    ).scalars().all()
+    stu_by_email = {st.email.lower(): st for st in existing_students}
+    stu_by_guid = {st.google_user_id: st for st in existing_students if st.google_user_id}
+
+    existing_enr_ids = set(
+        (await db.execute(select(Enrollment.student_id).where(Enrollment.classroom_id == cls.id))).scalars().all()
+    )
+
     for s in roster:
         profile = s.get("profile") or {}
-        email = profile.get("emailAddress") or f"{s.get('userId')}@classroom.google.local"
+        g_uid = s.get("userId")
+        email = (profile.get("emailAddress") or f"{g_uid}@classroom.google.local").lower()
         full_name = (profile.get("name") or {}).get("fullName") or email
-        student = (
-            await db.execute(
-                select(Student).where(Student.workspace_id == actor.workspace_id, Student.email == email)
-            )
-        ).scalar_one_or_none()
+        student = stu_by_guid.get(g_uid) or stu_by_email.get(email)
         if not student:
             student = Student(
                 workspace_id=actor.workspace_id,
                 full_name=full_name,
                 email=email,
-                google_user_id=s.get("userId"),
+                google_user_id=g_uid,
                 avatar_url=profile.get("photoUrl"),
             )
             db.add(student)
             await db.flush()
+            stu_by_email[email] = student
+            if g_uid:
+                stu_by_guid[g_uid] = student
+        elif g_uid and not student.google_user_id:
+            student.google_user_id = g_uid
 
-        enr = (
-            await db.execute(
-                select(Enrollment).where(Enrollment.classroom_id == cls.id, Enrollment.student_id == student.id)
-            )
-        ).scalar_one_or_none()
-        if not enr:
+        if student.id not in existing_enr_ids:
             db.add(Enrollment(workspace_id=actor.workspace_id, classroom_id=cls.id, student_id=student.id))
+            existing_enr_ids.add(student.id)
 
     conn.last_synced_at = datetime.now(timezone.utc)
     await db.commit()
@@ -307,14 +316,32 @@ async def import_google_submissions(
         await db.flush()
         db.add(AssignmentSubmissionSetting(workspace_id=actor.workspace_id, assignment_id=asg.id, allow_zip=True))
 
+    # Pre-load all workspace students and existing submissions in 2 batched queries (eliminates N+1!)
+    ws_students = (
+        await db.execute(select(Student).where(Student.workspace_id == actor.workspace_id))
+    ).scalars().all()
+    stu_by_guid = {st.google_user_id: st for st in ws_students if st.google_user_id}
+
+    existing_subs = (
+        await db.execute(select(Submission).where(Submission.assignment_id == asg.id))
+    ).scalars().all()
+    sub_by_stu_id = {sb.student_id: sb for sb in existing_subs}
+
     imported_count = 0
     for gs in gc_subs:
         g_uid = gs.get("userId")
-        student = (
-            await db.execute(
-                select(Student).where(Student.workspace_id == actor.workspace_id, Student.google_user_id == g_uid)
+        student = stu_by_guid.get(g_uid)
+        if not student and g_uid:
+            # Auto-create placeholder student so ZERO submissions are ever silently skipped
+            student = Student(
+                workspace_id=actor.workspace_id,
+                full_name=f"Student {g_uid[-6:]}",
+                email=f"{g_uid}@classroom.google.local",
+                google_user_id=g_uid,
             )
-        ).scalar_one_or_none()
+            db.add(student)
+            await db.flush()
+            stu_by_guid[g_uid] = student
         if not student:
             continue
 
@@ -325,11 +352,7 @@ async def import_google_submissions(
             else ("returned" if state == "RETURNED" else "submitted")
         )
 
-        sub = (
-            await db.execute(
-                select(Submission).where(Submission.assignment_id == asg.id, Submission.student_id == student.id)
-            )
-        ).scalar_one_or_none()
+        sub = sub_by_stu_id.get(student.id)
         if not sub:
             sub = Submission(
                 workspace_id=actor.workspace_id,
@@ -343,10 +366,12 @@ async def import_google_submissions(
             )
             db.add(sub)
             await db.flush()
+            sub_by_stu_id[student.id] = sub
         else:
             sub.google_submission_state = state
             if mapped_status == "submitted" and sub.status == "not_submitted":
                 sub.status = "submitted"
+            sub.latest_version_number += 1
 
         attachments = (gs.get("assignmentSubmission") or {}).get("attachments", [])
         if attachments:

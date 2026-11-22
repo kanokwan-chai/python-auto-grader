@@ -262,6 +262,7 @@ async def execute_grading_run(
     sandbox_client: Optional[SandboxClient] = None,
     ai_reviewer: Optional[AIReviewerService] = None,
     storage: Optional[StorageService] = None,
+    selected_artifact_ids: Optional[List[str]] = None,
 ) -> GradingRun:
     run = await db.get(GradingRun, grading_run_id)
     if not run:
@@ -279,6 +280,11 @@ async def execute_grading_run(
     artifacts = (
         await db.execute(select(SubmissionArtifact).where(SubmissionArtifact.version_id == run.version_id))
     ).scalars().all()
+    if selected_artifact_ids:
+        sel_set = set(selected_artifact_ids)
+        filtered_arts = [a for a in artifacts if a.id in sel_set]
+        if filtered_arts:
+            artifacts = filtered_arts
     criteria_rows = (
         await db.execute(
             select(RubricCriterion)

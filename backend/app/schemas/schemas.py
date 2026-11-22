@@ -338,6 +338,7 @@ class TeacherFeedbackIn(BaseModel):
 
 class BatchGradeIn(BaseModel):
     submission_ids: Optional[List[str]] = None
+    selected_artifact_ids: Optional[List[str]] = None
     run_sync_inline: bool = False
 
 

@@ -149,13 +149,13 @@ async def trigger_batch_grading(
 
     for run in queued_runs:
         if body.run_sync_inline:
-            await execute_grading_run(db, run.id)
+            await execute_grading_run(db, run.id, selected_artifact_ids=body.selected_artifact_ids)
         else:
             try:
                 task = run_grading_task.delay(run.id)
                 run.celery_task_id = task.id
             except Exception:
-                await execute_grading_run(db, run.id)
+                await execute_grading_run(db, run.id, selected_artifact_ids=body.selected_artifact_ids)
     await db.commit()
 
     return {"queued_count": len(queued_runs), "run_ids": [r.id for r in queued_runs]}

@@ -69,18 +69,34 @@ async def list_assignment_submissions(
         )
     ).all()
 
-    output = []
-    for sub, stu in rows:
-        artifacts = (
+    sub_ids = [sub.id for sub, _ in rows]
+    run_ids = [sub.latest_grading_run_id for sub, _ in rows if sub.latest_grading_run_id]
+
+    artifacts_by_sub: dict[str, list[SubmissionArtifact]] = {sid: [] for sid in sub_ids}
+    if sub_ids:
+        all_artifacts = (
             await db.execute(
-                select(SubmissionArtifact).where(SubmissionArtifact.submission_id == sub.id)
+                select(SubmissionArtifact)
+                .where(SubmissionArtifact.submission_id.in_(sub_ids))
+                .order_by(SubmissionArtifact.created_at.desc())
             )
         ).scalars().all()
+        for a in all_artifacts:
+            artifacts_by_sub.setdefault(a.submission_id, []).append(a)
+
+    runs_by_id: dict[str, GradingRun] = {}
+    if run_ids:
+        all_runs = (await db.execute(select(GradingRun).where(GradingRun.id.in_(run_ids)))).scalars().all()
+        runs_by_id = {r.id: r for r in all_runs}
+
+    output = []
+    for sub, stu in rows:
+        artifacts = artifacts_by_sub.get(sub.id, [])
         artifact_types = sorted({a.artifact_type for a in artifacts})
         ai_usage_percent = None
-        if sub.latest_grading_run_id:
-            latest_run = await db.get(GradingRun, sub.latest_grading_run_id)
-            if latest_run and isinstance(latest_run.runtime_summary, dict):
+        if sub.latest_grading_run_id and sub.latest_grading_run_id in runs_by_id:
+            latest_run = runs_by_id[sub.latest_grading_run_id]
+            if isinstance(latest_run.runtime_summary, dict):
                 ai_info = latest_run.runtime_summary.get("ai_usage")
                 if isinstance(ai_info, dict):
                     ai_usage_percent = ai_info.get("estimated_ai_percent")
@@ -94,6 +110,16 @@ async def list_assignment_submissions(
                     "student_code": stu.student_code,
                 },
                 "artifact_types": artifact_types,
+                "artifacts": [
+                    {
+                        "id": a.id,
+                        "artifact_type": a.artifact_type,
+                        "original_filename": a.original_filename,
+                        "colab_url": a.colab_url,
+                        "fetch_status": a.fetch_status,
+                    }
+                    for a in artifacts
+                ],
                 "ai_usage_percent": ai_usage_percent,
             }
         )

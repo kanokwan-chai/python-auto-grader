@@ -196,30 +196,55 @@ class GoogleClassroomService:
             raise GoogleIntegrationError("google_api_error", f"Google API error ({resp.status_code}): {resp.text[:300]}", resp.status_code)
         return resp
 
+    async def _google_paginated_get(
+        self,
+        db: AsyncSession,
+        conn: GoogleConnection,
+        url: str,
+        list_key: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch ALL pages from a Google Classroom list endpoint using nextPageToken."""
+        items: List[Dict[str, Any]] = []
+        base_params = dict(params or {})
+        base_params.setdefault("pageSize", 100)
+        page_token: Optional[str] = None
+        for _ in range(50):  # safety cap (up to 5,000 items)
+            req_params = dict(base_params)
+            if page_token:
+                req_params["pageToken"] = page_token
+            resp = await self._google_request(db, conn, "GET", url, params=req_params)
+            payload = resp.json()
+            items.extend(payload.get(list_key, []))
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
+        return items
+
     async def list_courses(self, db: AsyncSession, conn: GoogleConnection) -> List[Dict[str, Any]]:
-        resp = await self._google_request(
-            db, conn, "GET", f"{CLASSROOM_API_BASE}/courses", params={"teacherId": "me", "courseStates": "ACTIVE"}
+        return await self._google_paginated_get(
+            db, conn, f"{CLASSROOM_API_BASE}/courses", "courses", params={"teacherId": "me", "courseStates": "ACTIVE"}
         )
-        return resp.json().get("courses", [])
 
     async def list_students(self, db: AsyncSession, conn: GoogleConnection, course_id: str) -> List[Dict[str, Any]]:
-        resp = await self._google_request(db, conn, "GET", f"{CLASSROOM_API_BASE}/courses/{course_id}/students")
-        return resp.json().get("students", [])
+        return await self._google_paginated_get(
+            db, conn, f"{CLASSROOM_API_BASE}/courses/{course_id}/students", "students"
+        )
 
     async def list_coursework(self, db: AsyncSession, conn: GoogleConnection, course_id: str) -> List[Dict[str, Any]]:
-        resp = await self._google_request(db, conn, "GET", f"{CLASSROOM_API_BASE}/courses/{course_id}/courseWork")
-        return resp.json().get("courseWork", [])
+        return await self._google_paginated_get(
+            db, conn, f"{CLASSROOM_API_BASE}/courses/{course_id}/courseWork", "courseWork"
+        )
 
     async def list_student_submissions(
         self, db: AsyncSession, conn: GoogleConnection, course_id: str, coursework_id: str
     ) -> List[Dict[str, Any]]:
-        resp = await self._google_request(
+        return await self._google_paginated_get(
             db,
             conn,
-            "GET",
             f"{CLASSROOM_API_BASE}/courses/{course_id}/courseWork/{coursework_id}/studentSubmissions",
+            "studentSubmissions",
         )
-        return resp.json().get("studentSubmissions", [])
 
     async def download_drive_file(self, db: AsyncSession, conn: GoogleConnection, file_id: str) -> Tuple[bytes, Dict[str, Any]]:
         meta_resp = await self._google_request(
@@ -228,6 +253,13 @@ class GoogleClassroomService:
         meta = meta_resp.json()
         if meta.get("trashed"):
             raise GoogleIntegrationError("file_deleted", f"ไฟล์ Google Drive ({file_id}) ถูกลบอยู่ในถังขยะ", 404)
+
+        mime = meta.get("mimeType") or ""
+        if mime.startswith("application/vnd.google-apps.") and mime != "application/vnd.google.colaboratory":
+            dl_resp = await self._google_request(
+                db, conn, "GET", f"{DRIVE_API_BASE}/files/{file_id}/export", params={"mimeType": "application/pdf"}
+            )
+            return dl_resp.content, meta
 
         dl_resp = await self._google_request(
             db, conn, "GET", f"{DRIVE_API_BASE}/files/{file_id}", params={"alt": "media"}

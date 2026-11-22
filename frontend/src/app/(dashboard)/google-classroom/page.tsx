@@ -6,18 +6,20 @@ import {
   CheckCircle2,
   Cloud,
   Download,
-  ExternalLink,
-  FolderDown,
+  Eye,
+  FileCode2,
+  FileText,
   Link2,
   Play,
   RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
-import { apiFetch } from "@/lib/api";
-import type { GoogleConnection } from "@/lib/types";
+import { apiFetch, downloadExcelReport } from "@/lib/api";
+import type { GoogleConnection, SubmissionSummary } from "@/lib/types";
 
 interface GoogleCourse {
   id: string;
@@ -35,59 +37,69 @@ interface GoogleCoursework {
   state?: string;
 }
 
-export default function GoogleClassroomPage() {
+const STEPS = [
+  { num: 1, label: "1. บัญชี Google" },
+  { num: 2, label: "2. เลือก Classroom" },
+  { num: 3, label: "3. เลือกงาน" },
+  { num: 4, label: "4. ตรวจไฟล์ส่ง (เลือกไฟล์)" },
+  { num: 5, label: "5. เลือกเกณฑ์" },
+  { num: 6, label: "6. เริ่มตรวจงาน" },
+  { num: 7, label: "7. ผลการตรวจ" },
+];
+
+export default function GoogleClassroomWizardPage() {
   const { activeWorkspace } = useApp();
+  const [step, setStep] = useState<number>(1);
   const [connections, setConnections] = useState<GoogleConnection[]>([]);
   const [selectedConnId, setSelectedConnId] = useState<string>("");
   const [courses, setCourses] = useState<GoogleCourse[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState<string>("");
+  const [selectedCourse, setSelectedCourse] = useState<GoogleCourse | null>(null);
   const [coursework, setCoursework] = useState<GoogleCoursework[]>([]);
-  const [importedAssignmentId, setImportedAssignmentId] = useState<string>("");
+  const [selectedCw, setSelectedCw] = useState<GoogleCoursework | null>(null);
+  const [assignmentId, setAssignmentId] = useState<string>("");
+  const [submissions, setSubmissions] = useState<SubmissionSummary[]>([]);
+  const [selectedArtifactIds, setSelectedArtifactIds] = useState<Record<string, boolean>>({});
+  const [presetMode, setPresetMode] = useState<"python_run" | "pdf_canva" | "custom">("python_run");
+  const [maxScore, setMaxScore] = useState<number>(10);
+
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  const cacheKey = activeWorkspace ? `pygrader_gc_cache_${activeWorkspace.id}` : "";
+  const cacheKey = activeWorkspace ? `pygrader_wizard_${activeWorkspace.id}` : "";
 
-  // Restore saved Google Classroom state immediately so user never loses courses/coursework
+  // Hydrate wizard state from localStorage immediately
   useEffect(() => {
     if (!cacheKey || typeof window === "undefined") return;
     try {
-      const saved = localStorage.getItem(cacheKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.selectedConnId) setSelectedConnId(parsed.selectedConnId);
-        if (Array.isArray(parsed.courses)) setCourses(parsed.courses);
-        if (parsed.selectedCourseId) setSelectedCourseId(parsed.selectedCourseId);
-        if (Array.isArray(parsed.coursework)) setCoursework(parsed.coursework);
-        if (parsed.importedAssignmentId) setImportedAssignmentId(parsed.importedAssignmentId);
+      const raw = localStorage.getItem(cacheKey);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (s.step) setStep(s.step);
+        if (s.selectedConnId) setSelectedConnId(s.selectedConnId);
+        if (Array.isArray(s.courses)) setCourses(s.courses);
+        if (s.selectedCourse) setSelectedCourse(s.selectedCourse);
+        if (Array.isArray(s.coursework)) setCoursework(s.coursework);
+        if (s.selectedCw) setSelectedCw(s.selectedCw);
+        if (s.assignmentId) setAssignmentId(s.assignmentId);
       }
     } catch {
-      // ignore corrupted cache
+      // ignore
     }
   }, [cacheKey]);
 
-  // Persist Google Classroom state automatically on change
+  // Save wizard state automatically
   useEffect(() => {
     if (!cacheKey || typeof window === "undefined") return;
     try {
       localStorage.setItem(
         cacheKey,
-        JSON.stringify({ selectedConnId, courses, selectedCourseId, coursework, importedAssignmentId })
+        JSON.stringify({ step, selectedConnId, courses, selectedCourse, coursework, selectedCw, assignmentId })
       );
     } catch {
-      // ignore quota errors
+      // ignore
     }
-  }, [cacheKey, selectedConnId, courses, selectedCourseId, coursework, importedAssignmentId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const qs = new URLSearchParams(window.location.search);
-    if (qs.get("connected") === "1") {
-      const email = qs.get("email") || "";
-      setMessage(`เชื่อมต่อบัญชี Google Classroom ${email ? `(${email})` : ""} สำเร็จแล้ว! กด "ดึงรายวิชา" ด้านล่างได้เลย`);
-    }
-  }, []);
+  }, [cacheKey, step, selectedConnId, courses, selectedCourse, coursework, selectedCw, assignmentId]);
 
   const loadConnections = useCallback(async () => {
     if (!activeWorkspace) return;
@@ -95,9 +107,7 @@ export default function GoogleClassroomPage() {
       const list = await apiFetch<GoogleConnection[]>("/google/connections");
       setConnections(list);
       const active = list.find((c) => c.status === "connected");
-      if (active && !selectedConnId) {
-        setSelectedConnId(active.id);
-      }
+      if (active && !selectedConnId) setSelectedConnId(active.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "โหลดรายการบัญชี Google ไม่สำเร็จ");
     }
@@ -107,323 +117,650 @@ export default function GoogleClassroomPage() {
     loadConnections();
   }, [loadConnections]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const qs = new URLSearchParams(window.location.search);
+    if (qs.get("connected") === "1") {
+      setMessage(`เชื่อมต่อบัญชี Google (${qs.get("email") || ""}) สำเร็จแล้ว!`);
+      setStep(1);
+    }
+  }, []);
+
+  const loadSubmissions = useCallback(async (asgId: string) => {
+    if (!asgId) return;
+    const list = await apiFetch<SubmissionSummary[]>(`/assignments/${asgId}/submissions`);
+    setSubmissions(list);
+    // Default: select all artifacts
+    const nextSel: Record<string, boolean> = {};
+    list.forEach((s) => {
+      (s.artifacts || []).forEach((a) => {
+        nextSel[a.id] = true;
+      });
+    });
+    setSelectedArtifactIds(nextSel);
+  }, []);
+
+  useEffect(() => {
+    if (assignmentId && (step === 4 || step === 6 || step === 7) && submissions.length === 0) {
+      loadSubmissions(assignmentId).catch(() => {});
+    }
+  }, [assignmentId, step, submissions.length, loadSubmissions]);
+
   async function handleConnectOAuth(scopeMode: "read" | "write") {
     setError("");
-    setMessage("");
     try {
-      const res = await apiFetch<{ authorization_url: string }>(
-        `/google/oauth/authorize?scope_mode=${scopeMode}`
-      );
+      const res = await apiFetch<{ authorization_url: string }>(`/google/oauth/authorize?scope_mode=${scopeMode}`);
       window.location.href = res.authorization_url;
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? `${err.message} — ตรวจสอบการตั้งค่า GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET ใน .env ตามเอกสาร docs/SETUP_GOOGLE_AND_SUPABASE.md`
-          : "ไม่สามารถเริ่มต้น Google OAuth ได้"
-      );
+      setError(err instanceof Error ? err.message : "ไม่สามารถเริ่ม Google OAuth ได้");
     }
   }
 
   async function handleDisconnect(connId: string) {
     setError("");
-    try {
-      await apiFetch(`/google/connections/${connId}`, { method: "DELETE" });
-      setMessage("ยกเลิกการเชื่อมต่อบัญชี Google เรียบร้อยแล้ว");
-      if (selectedConnId === connId) {
-        setSelectedConnId("");
-        setCourses([]);
-        setCoursework([]);
-      }
-      await loadConnections();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "ยกเลิกการเชื่อมต่อไม่สำเร็จ");
-    }
+    await apiFetch(`/google/connections/${connId}`, { method: "DELETE" });
+    setSelectedConnId("");
+    setCourses([]);
+    setCoursework([]);
+    await loadConnections();
   }
 
-  async function handleLoadCourses(connId: string) {
+  async function handleSelectAccount(connId: string) {
     setSelectedConnId(connId);
     setBusy(true);
     setError("");
-    setCourses([]);
-    setCoursework([]);
     try {
       const res = await apiFetch<{ courses: GoogleCourse[] }>(`/google/connections/${connId}/courses`);
       setCourses(res.courses || []);
-      if (!res.courses || res.courses.length === 0) {
-        setMessage("ไม่พบรายวิชาที่คุณเป็นครูผู้สอนในบัญชี Google นี้");
-      }
+      setStep(2);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "ดึงรายวิชาจาก Google Classroom ไม่สำเร็จ");
+      setError(err instanceof Error ? err.message : "ดึงรายวิชาไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleImportCourse(courseId: string) {
-    if (!selectedConnId) return;
+  async function handleSelectCourse(course: GoogleCourse) {
+    setSelectedCourse(course);
     setBusy(true);
     setError("");
     setMessage("");
     try {
-      const cls = await apiFetch<{ name: string }>(
-        `/google/connections/${selectedConnId}/courses/${courseId}/import`,
-        { method: "POST" }
-      );
-      setMessage(`นำเข้าห้องเรียน "${cls.name}" และรายชื่อนักเรียนเรียบร้อยแล้ว`);
-      setSelectedCourseId(courseId);
+      await apiFetch(`/google/connections/${selectedConnId}/courses/${course.id}/import`, { method: "POST" });
       const cwRes = await apiFetch<{ coursework: GoogleCoursework[] }>(
-        `/google/connections/${selectedConnId}/courses/${courseId}/coursework`
+        `/google/connections/${selectedConnId}/courses/${course.id}/coursework`
       );
       setCoursework(cwRes.coursework || []);
+      setStep(3);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "นำเข้าห้องเรียนไม่สำเร็จ");
+      setError(err instanceof Error ? err.message : "นำเข้าห้องเรียนและดึงรายการงานไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
   }
 
-  async function handleLoadCoursework(courseId: string) {
-    if (!selectedConnId) return;
-    setSelectedCourseId(courseId);
-    setBusy(true);
-    setError("");
-    try {
-      const cwRes = await apiFetch<{ coursework: GoogleCoursework[] }>(
-        `/google/connections/${selectedConnId}/courses/${courseId}/coursework`
-      );
-      setCoursework(cwRes.coursework || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "ดึงงานที่มอบหมายไม่สำเร็จ");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleImportSubmissions(courseworkId: string) {
-    if (!selectedConnId || !selectedCourseId) return;
+  async function handleSelectCoursework(cw: GoogleCoursework) {
+    if (!selectedCourse) return;
+    setSelectedCw(cw);
+    setMaxScore(Number(cw.maxPoints || 10));
     setBusy(true);
     setError("");
     setMessage("");
     try {
       const res = await apiFetch<{ assignment_id: string; imported_submissions: number }>(
-        `/google/connections/${selectedConnId}/courses/${selectedCourseId}/coursework/${courseworkId}/import-submissions`,
+        `/google/connections/${selectedConnId}/courses/${selectedCourse.id}/coursework/${cw.id}/import-submissions`,
         { method: "POST" }
       );
-      setImportedAssignmentId(res.assignment_id);
-      setMessage(
-        `นำเข้าใบงานและผลงานนักเรียนเรียบร้อยแล้ว (${res.imported_submissions} รายการ — รองรับทั้ง Python, Colab, PDF และ Canva) กรุณากดตั้งเกณฑ์แล้วเริ่มตรวจงานได้เลย`
-      );
+      setAssignmentId(res.assignment_id);
+      await loadSubmissions(res.assignment_id);
+      setMessage(`ดึงงาน "${cw.title}" สำเร็จทั้งหมด ${res.imported_submissions} คน! เลือกไฟล์ที่ต้องการตรวจด้านล่างได้เลย`);
+      setStep(4);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "นำเข้าผลงานนักเรียนไม่สำเร็จ");
+      setError(err instanceof Error ? err.message : "ดึงผลงานนักเรียนไม่สำเร็จ");
     } finally {
       setBusy(false);
     }
   }
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-[#1F1B2E]">เชื่อมต่อ Google Classroom (Official API)</h1>
-          <p className="text-sm text-[#645D7B]">
-            เชื่อมต่อด้วย OAuth 2.0 แยกสิทธิ์อ่านข้อมูลและสิทธิ์ส่งคะแนน ดึงรายวิชา นักเรียน ไฟล์แนบ และ Google Colab
-          </p>
-        </div>
+  function filterArtifactsByType(types: string[] | "all") {
+    const nextSel: Record<string, boolean> = {};
+    submissions.forEach((s) => {
+      (s.artifacts || []).forEach((a) => {
+        nextSel[a.id] = types === "all" ? true : types.includes(a.artifact_type);
+      });
+    });
+    setSelectedArtifactIds(nextSel);
+  }
 
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => handleConnectOAuth("read")}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#7C5CFC] hover:bg-[#6846F5] text-white text-sm font-medium transition"
-          >
-            <Link2 className="w-4 h-4" /> เชื่อมบัญชี Google (สิทธิ์อ่าน)
-          </button>
-          <button
-            onClick={() => handleConnectOAuth("write")}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-[#DDD4FF] text-[#7C5CFC] hover:bg-[#F2EEFF] text-sm font-medium transition"
-          >
-            <ShieldCheck className="w-4 h-4" /> เพิ่มสิทธิ์ส่งคะแนนกลับ (Write Scope)
-          </button>
+  function selectNthArtifactPerStudent(index: number) {
+    const nextSel: Record<string, boolean> = {};
+    submissions.forEach((s) => {
+      const arts = s.artifacts || [];
+      arts.forEach((a, idx) => {
+        nextSel[a.id] = idx === index;
+      });
+    });
+    setSelectedArtifactIds(nextSel);
+  }
+
+  async function handleApplyPresetAndNext() {
+    if (!assignmentId) return;
+    setBusy(true);
+    setError("");
+    try {
+      if (presetMode === "python_run") {
+        const runPts = Math.round(maxScore * 0.6 * 2) / 2;
+        const astPts = Math.max(1, Math.round((maxScore - runPts) * 2) / 2);
+        await apiFetch(`/assignments/${assignmentId}/rubric`, {
+          method: "PUT",
+          body: JSON.stringify([
+            {
+              order_index: 0,
+              name: "โครงสร้างโค้ด Python ถูกต้อง (ไม่มี Syntax Error)",
+              max_score: astPts,
+              check_method: "ast",
+              rule_config: {},
+              allow_partial_credit: true,
+            },
+            {
+              order_index: 1,
+              name: "โปรแกรมสามารถรันทำงานได้จริง ไม่มี Runtime Error",
+              max_score: runPts,
+              check_method: "runtime",
+              rule_config: {},
+              allow_partial_credit: false,
+            },
+          ]),
+        });
+      } else if (presetMode === "pdf_canva") {
+        const half = Math.max(1, Math.round((maxScore / 2) * 2) / 2);
+        await apiFetch(`/assignments/${assignmentId}/rubric`, {
+          method: "PUT",
+          body: JSON.stringify([
+            {
+              order_index: 0,
+              name: "ส่งไฟล์ PDF / ลิงก์ Canva ครบถ้วนและเปิดอ่านได้",
+              max_score: half,
+              check_method: "document",
+              rule_config: { min_pages: 1 },
+              allow_partial_credit: true,
+            },
+            {
+              order_index: 1,
+              name: "เนื้อหาครบถ้วนตามจำนวนคำขั้นต่ำ",
+              max_score: Math.max(1, maxScore - half),
+              check_method: "document",
+              rule_config: { min_words: 15 },
+              allow_partial_credit: true,
+            },
+          ]),
+        });
+      }
+      setStep(6);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "บันทึกเกณฑ์ไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleStartBatchGrading() {
+    if (!assignmentId) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    const chosenIds = Object.entries(selectedArtifactIds)
+      .filter(([, checked]) => checked)
+      .map(([id]) => id);
+    try {
+      const res = await apiFetch<{ queued_count: number }>(`/grading/assignments/${assignmentId}/run-batch`, {
+        method: "POST",
+        body: JSON.stringify({
+          run_sync_inline: true,
+          selected_artifact_ids: chosenIds.length > 0 ? chosenIds : null,
+        }),
+      });
+      await loadSubmissions(assignmentId);
+      setMessage(`ตรวจงานเสร็จสิ้น ${res.queued_count} คน (พร้อมผล % การใช้ AI)`);
+      setStep(7);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "เริ่มตรวจงานไม่สำเร็จ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const chosenCount = Object.values(selectedArtifactIds).filter(Boolean).length;
+
+  return (
+    <div className="space-y-5">
+      {/* Top 7-Step Wizard Pill Bar */}
+      <div className="card-soft p-3 overflow-x-auto">
+        <div className="flex items-center gap-2 min-w-max">
+          {STEPS.map((st) => {
+            const active = step === st.num;
+            const done = step > st.num;
+            return (
+              <button
+                key={st.num}
+                type="button"
+                onClick={() => setStep(st.num)}
+                className={`px-4 py-2 rounded-full text-xs font-semibold transition ${
+                  active
+                    ? "bg-gradient-to-r from-[#B895E8] to-[#9870D4] text-white shadow-sm"
+                    : done
+                    ? "bg-[#E8D9FA]/70 text-[#684A96]"
+                    : "bg-[#FFFAF5] text-[#7C6B99] hover:bg-[#F4ECFE]"
+                }`}
+              >
+                {st.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {message && (
-        <div className="rounded-2xl bg-[#DDF1E7] border border-[#b7e2cd] px-4 py-3.5 text-sm text-[#246348] space-y-2.5">
-          <div>{message}</div>
-          {importedAssignmentId && (
-            <div className="flex flex-wrap gap-2 pt-1">
-              <Link
-                href={`/assignments/${importedAssignmentId}/criteria`}
-                className="btn-kawaii px-4 py-2 text-xs"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" /> 1. ตั้งเกณฑ์การตรวจ (Rubric / PDF / Canva)
-              </Link>
-              <Link
-                href={`/grading?assignment_id=${importedAssignmentId}`}
-                className="btn-kawaii-peach px-4 py-2 text-xs"
-              >
-                <Play className="w-3.5 h-3.5" /> 2. ไปหน้าตรวจงานตามเกณฑ์
-              </Link>
+        <div className="rounded-2xl bg-[#DDF1E7] border border-[#b7e2cd] px-4 py-3 text-sm text-[#246348]">
+          {message}
+        </div>
+      )}
+      {error && (
+        <div className="rounded-2xl bg-[#F7DCE8]/75 border border-[#F8E1EE] px-4 py-3 text-sm text-[#9D2B5B]">
+          {error}
+        </div>
+      )}
+
+      {/* STEP 1: Google Account */}
+      {step === 1 && (
+        <div className="card-soft p-6 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-xl font-semibold text-[#684A96]">ขั้นที่ 1: เลือกบัญชี Google</h2>
+              <p className="text-xs text-[#7C6B99]">เชื่อมต่อบัญชีครูเพื่อดึงห้องเรียนและไฟล์งานทั้งหมดของนักเรียน</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => handleConnectOAuth("read")} className="btn-kawaii px-4 py-2 text-xs">
+                <Link2 className="w-3.5 h-3.5" /> เชื่อมบัญชี Google (สิทธิ์อ่าน)
+              </button>
+              <button onClick={() => handleConnectOAuth("write")} className="btn-kawaii-soft px-4 py-2 text-xs">
+                <ShieldCheck className="w-3.5 h-3.5" /> เพิ่มสิทธิ์ส่งคะแนนกลับ
+              </button>
+            </div>
+          </div>
+
+          {connections.filter((c) => c.status === "connected").length === 0 ? (
+            <div className="rounded-3xl border-2 border-dashed border-[#E8D9FA] bg-[#FFFAF5] p-10 text-center space-y-3">
+              <div className="w-12 h-12 mx-auto rounded-2xl bg-[#E8D9FA] text-[#684A96] flex items-center justify-center">
+                <Cloud className="w-6 h-6" />
+              </div>
+              <div className="font-semibold text-[#684A96]">ยังไม่มีบัญชี Google ที่เชื่อมต่อ</div>
+              <p className="text-xs text-[#7C6B99]">กดปุ่มด้านล่างเพื่อล็อกอินเลือกบัญชี Google Classroom ของคุณ</p>
+              <button onClick={() => handleConnectOAuth("read")} className="btn-kawaii px-5 py-2.5 text-xs">
+                เชื่อมบัญชี Google Classroom
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {connections
+                .filter((c) => c.status === "connected")
+                .map((conn) => (
+                  <div
+                    key={conn.id}
+                    className="rounded-2xl border border-[#E8D9FA] bg-[#FFFAF5] p-4 flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-semibold text-sm text-[#4A3869] truncate">{conn.google_account_email}</div>
+                      <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#DDF1E7] text-[#2E7D5B]">
+                        {conn.has_write_scope ? "Read + ส่งคะแนนกลับได้" : "Connected (Read-Only)"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => handleSelectAccount(conn.id)}
+                        disabled={busy}
+                        className="btn-kawaii px-4 py-2 text-xs"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} /> เลือกบัญชีนี้ →
+                      </button>
+                      <button
+                        onClick={() => handleDisconnect(conn.id)}
+                        className="p-2 rounded-full text-rose-500 hover:bg-rose-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
         </div>
       )}
-      {error && (
-        <div className="rounded-2xl bg-[#FFF1F2] border border-rose-200 px-4 py-3 text-sm text-rose-700">{error}</div>
-      )}
 
-      {/* Connected Google Accounts */}
-      <div className="card-soft p-6 space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-bold text-[#1F1B2E] flex items-center gap-2">
-            <Cloud className="w-5 h-5 text-[#7C5CFC]" /> บัญชี Google ที่เชื่อมต่อใน Workspace นี้
-          </h2>
-          <span className="text-xs text-[#645D7B]">Token ถูกเข้ารหัสด้วย Fernet (AES-128-CBC + HMAC)</span>
-        </div>
-
-        {connections.length === 0 ? (
-          <div className="rounded-2xl bg-[#FAF8F5] border border-[#ECE7F6] p-6 text-center space-y-2">
-            <p className="text-sm font-medium text-[#1F1B2E]">ยังไม่มีบัญชี Google Classroom ที่เชื่อมต่อ</p>
-            <p className="text-xs text-[#645D7B]">
-              กดปุ่ม &ldquo;เชื่อมบัญชี Google (สิทธิ์อ่าน)&rdquo; ด้านบนเพื่อเริ่มต้น หรือดูขั้นตอนตั้งค่า OAuth Credentials ใน{" "}
-              <code className="px-1.5 py-0.5 rounded bg-white border border-[#ECE7F6]">docs/SETUP_GOOGLE_AND_SUPABASE.md</code>
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {connections.map((conn) => (
-              <div
-                key={conn.id}
-                className={`rounded-2xl border p-4 flex items-center justify-between gap-3 ${
-                  selectedConnId === conn.id
-                    ? "border-[#7C5CFC] bg-[#F2EEFF]/50"
-                    : "border-[#ECE7F6] bg-[#FAF8F5]"
-                }`}
-              >
-                <div className="min-w-0">
-                  <div className="font-semibold text-sm text-[#1F1B2E] truncate">{conn.google_account_email}</div>
-                  <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                        conn.status === "connected"
-                          ? "bg-[#ECFDF5] text-emerald-700"
-                          : "bg-[#FFF1F2] text-rose-700"
-                      }`}
-                    >
-                      {conn.status}
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-white border border-[#DDD4FF] text-[#645D7B]">
-                      {conn.has_write_scope ? "Read + Grade Write" : "Read-Only"}
-                    </span>
-                  </div>
-                  {conn.last_error && <p className="text-[11px] text-rose-600 mt-1">{conn.last_error}</p>}
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {conn.status === "connected" && (
-                    <button
-                      onClick={() => handleLoadCourses(conn.id)}
-                      disabled={busy}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#7C5CFC] hover:bg-[#6846F5] text-white text-xs font-semibold"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${busy && selectedConnId === conn.id ? "animate-spin" : ""}`} />
-                      ดึงรายวิชา
-                    </button>
-                  )}
-                  <button
-                    onClick={() => handleDisconnect(conn.id)}
-                    title="ยกเลิกการเชื่อมต่อ"
-                    className="p-2 rounded-xl text-rose-500 hover:bg-rose-50"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Courses & Coursework Split */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Courses */}
+      {/* STEP 2: Choose Classroom */}
+      {step === 2 && (
         <div className="card-soft p-6 space-y-4">
-          <h2 className="font-bold text-[#1F1B2E] flex items-center gap-2">
-            <FolderDown className="w-5 h-5 text-[#7C5CFC]" /> 1. เลือกรายวิชาจาก Google Classroom
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-heading text-xl font-semibold text-[#684A96]">ขั้นที่ 2: เลือกห้องเรียน (Classroom)</h2>
+            <button onClick={() => selectedConnId && handleSelectAccount(selectedConnId)} className="btn-kawaii-soft px-3 py-1.5 text-xs">
+              <RefreshCw className={`w-3.5 h-3.5 ${busy ? "animate-spin" : ""}`} /> โหลดรายวิชาใหม่
+            </button>
+          </div>
           {courses.length === 0 ? (
-            <p className="text-xs text-[#645D7B]">เลือกบัญชี Google แล้วกด &ldquo;ดึงรายวิชา&rdquo; เพื่อแสดงห้องเรียน</p>
+            <p className="text-sm text-[#7C6B99]">ไม่พบรายวิชา กรุณากลับไปขั้นที่ 1 แล้วเลือกบัญชี Google</p>
           ) : (
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {courses.map((c) => (
-                <div
+                <button
                   key={c.id}
-                  className={`rounded-xl border p-3.5 flex items-center justify-between gap-3 ${
-                    selectedCourseId === c.id ? "border-[#7C5CFC] bg-[#F2EEFF]/40" : "border-[#ECE7F6] bg-[#FAF8F5]"
-                  }`}
+                  onClick={() => handleSelectCourse(c)}
+                  disabled={busy}
+                  className="text-left rounded-2xl border border-[#E8D9FA] bg-[#FFFAF5] hover:bg-[#F4ECFE] hover:border-[#B895E8] p-4 transition flex items-center justify-between gap-3"
                 >
                   <div>
-                    <div className="font-semibold text-sm text-[#1F1B2E]">{c.name}</div>
-                    <div className="text-xs text-[#645D7B]">
-                      {c.section || "ไม่มี Section"} • รหัส {c.enrollmentCode || c.id}
-                    </div>
+                    <div className="font-semibold text-sm text-[#4A3869]">{c.name}</div>
+                    <div className="text-xs text-[#7C6B99]">{c.section || "ไม่มี Section"}</div>
                   </div>
-                  <div className="flex gap-1.5 shrink-0">
-                    <button
-                      onClick={() => handleImportCourse(c.id)}
-                      disabled={busy}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#7C5CFC] hover:bg-[#6846F5] text-white text-xs font-semibold"
-                    >
-                      <Download className="w-3.5 h-3.5" /> Import ห้อง + นักเรียน
-                    </button>
-                    <button
-                      onClick={() => handleLoadCoursework(c.id)}
-                      disabled={busy}
-                      className="px-2.5 py-1.5 rounded-xl bg-white border border-[#DDD4FF] text-[#7C5CFC] text-xs font-semibold hover:bg-[#F2EEFF]"
-                    >
-                      ดูงาน
-                    </button>
-                  </div>
-                </div>
+                  <span className="text-xs font-semibold text-[#9870D4] shrink-0">
+                    {busy && selectedCourse?.id === c.id ? "กำลังดึง..." : "เลือกห้อง →"}
+                  </span>
+                </button>
               ))}
             </div>
           )}
         </div>
+      )}
 
-        {/* Coursework */}
+      {/* STEP 3: Choose Assignment */}
+      {step === 3 && (
         <div className="card-soft p-6 space-y-4">
-          <h2 className="font-bold text-[#1F1B2E] flex items-center gap-2">
-            <ExternalLink className="w-5 h-5 text-[#FF9F7F]" /> 2. นำเข้างานที่มอบหมายและไฟล์ที่นักเรียนส่ง
+          <h2 className="font-heading text-xl font-semibold text-[#684A96]">
+            ขั้นที่ 3: เลือกงานที่ต้องการตรวจ ({selectedCourse?.name})
           </h2>
           {coursework.length === 0 ? (
-            <p className="text-xs text-[#645D7B]">
-              เลือกห้องเรียนด้านซ้ายเพื่อดูรายการงานที่มอบหมาย (Coursework) และดึงผลงานนักเรียนเข้าสู่ระบบตรวจ
-            </p>
+            <p className="text-sm text-[#7C6B99]">ไม่พบรายการงานในห้องเรียนนี้</p>
           ) : (
             <div className="space-y-2.5">
               {coursework.map((cw) => (
                 <div
                   key={cw.id}
-                  className="rounded-xl border border-[#ECE7F6] bg-[#FAF8F5] p-3.5 flex items-center justify-between gap-3"
+                  className="rounded-2xl border border-[#E8D9FA] bg-[#FFFAF5] p-4 flex items-center justify-between gap-3"
                 >
                   <div>
-                    <div className="font-semibold text-sm text-[#1F1B2E]">{cw.title}</div>
-                    <div className="text-xs text-[#645D7B]">
-                      คะแนนเต็ม {cw.maxPoints ?? 10} • สถานะ {cw.state || "PUBLISHED"}
-                    </div>
+                    <div className="font-semibold text-sm text-[#4A3869]">{cw.title}</div>
+                    <div className="text-xs text-[#7C6B99]">คะแนนเต็ม {cw.maxPoints ?? 10}</div>
                   </div>
                   <button
-                    onClick={() => handleImportSubmissions(cw.id)}
+                    onClick={() => handleSelectCoursework(cw)}
                     disabled={busy}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#FF9F7F] hover:bg-[#F58C69] text-white text-xs font-semibold shrink-0"
+                    className="btn-kawaii px-4 py-2 text-xs shrink-0"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Import ผลงานนักเรียน
+                    {busy && selectedCw?.id === cw.id ? "กำลังดึงงานเด็กทั้งหมด..." : "ดึงงานนักเรียนทั้งหมด →"}
                   </button>
                 </div>
               ))}
             </div>
           )}
         </div>
-      </div>
+      )}
+
+      {/* STEP 4: Inspect & Select Files (supports 2+ files in 1 assignment!) */}
+      {step === 4 && (
+        <div className="card-soft p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-xl font-semibold text-[#684A96]">
+                ขั้นที่ 4: ตรวจไฟล์ส่ง & เลือกไฟล์ที่จะตรวจ ({submissions.length} คน)
+              </h2>
+              <p className="text-xs text-[#7C6B99]">
+                กรณีนักเรียนส่งหลายไฟล์ในงานเดียว (เช่น ส่ง 2 งานในใบงานเดียว) สามารถติ๊กเลือกเฉพาะไฟล์ที่ต้องการตรวจได้ทันที!
+              </p>
+            </div>
+            <button onClick={() => setStep(5)} className="btn-kawaii px-5 py-2.5 text-xs">
+              ถัดไป: เลือกเกณฑ์ ({chosenCount} ไฟล์) →
+            </button>
+          </div>
+
+          {/* Quick File Selection Pills */}
+          <div className="flex flex-wrap gap-2 bg-[#FFFAF5] p-3 rounded-2xl border border-[#E8D9FA]">
+            <span className="text-xs font-semibold text-[#684A96] self-center mr-1">เลือกด่วน:</span>
+            <button onClick={() => filterArtifactsByType("all")} className="btn-kawaii-soft px-3 py-1 text-xs">
+              เลือกทุกไฟล์
+            </button>
+            <button onClick={() => selectNthArtifactPerStudent(0)} className="btn-kawaii-soft px-3 py-1 text-xs">
+              เฉพาะไฟล์ที่ 1 ของทุกคน
+            </button>
+            <button onClick={() => selectNthArtifactPerStudent(1)} className="btn-kawaii-soft px-3 py-1 text-xs">
+              เฉพาะไฟล์ที่ 2 ของทุกคน
+            </button>
+            <button onClick={() => filterArtifactsByType(["py", "ipynb", "colab_url", "zip"])} className="btn-kawaii-soft px-3 py-1 text-xs">
+              เฉพาะโค้ด Python / Colab
+            </button>
+            <button onClick={() => filterArtifactsByType(["pdf", "canva_url"])} className="btn-kawaii-soft px-3 py-1 text-xs">
+              เฉพาะ PDF / Canva
+            </button>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-[#E8D9FA]">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr>
+                  <th className="px-4 py-3">นักเรียน</th>
+                  <th className="px-4 py-3">สถานะ</th>
+                  <th className="px-4 py-3">ไฟล์ที่แนบมา (ติ๊กเลือกไฟล์ที่จะตรวจ)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F4ECFE]">
+                {submissions.map((item) => (
+                  <tr key={item.submission.id}>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-[#4A3869]">{item.student.full_name}</div>
+                      <div className="text-[11px] text-[#7C6B99]">{item.student.email}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full font-semibold ${
+                          item.submission.status === "not_submitted"
+                            ? "bg-[#F7DCE8] text-[#9D2B5B]"
+                            : "bg-[#DDF1E7] text-[#2E7D5B]"
+                        }`}
+                      >
+                        {item.submission.status === "not_submitted" ? "ยังไม่ส่ง" : "ส่งแล้ว"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {!item.artifacts || item.artifacts.length === 0 ? (
+                        <span className="text-[#7C6B99]">ไม่มีไฟล์แนบ</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {item.artifacts.map((art, idx) => (
+                            <label
+                              key={art.id}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border cursor-pointer transition ${
+                                selectedArtifactIds[art.id]
+                                  ? "bg-[#E8D9FA]/70 border-[#9870D4] text-[#684A96] font-semibold"
+                                  : "bg-white border-[#E8D9FA] text-[#7C6B99]"
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={!!selectedArtifactIds[art.id]}
+                                onChange={(e) =>
+                                  setSelectedArtifactIds((prev) => ({ ...prev, [art.id]: e.target.checked }))
+                                }
+                                className="accent-[#9870D4]"
+                              />
+                              <span>
+                                #{idx + 1} [{art.artifact_type}] {art.original_filename || "Link"}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 5: Choose Grading Criteria */}
+      {step === 5 && (
+        <div className="card-soft p-6 space-y-5">
+          <h2 className="font-heading text-xl font-semibold text-[#684A96]">ขั้นที่ 5: เลือกเกณฑ์การตรวจ</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <button
+              type="button"
+              onClick={() => setPresetMode("python_run")}
+              className={`text-left rounded-3xl p-5 border-2 transition space-y-2 ${
+                presetMode === "python_run" ? "border-[#9870D4] bg-[#F4ECFE]" : "border-[#E8D9FA] bg-[#FFFAF5]"
+              }`}
+            >
+              <div className="w-10 h-10 rounded-2xl bg-[#E8D9FA] text-[#684A96] flex items-center justify-center">
+                <FileCode2 className="w-5 h-5" />
+              </div>
+              <div className="font-heading font-semibold text-[#684A96]">ตรวจโค้ด Python รันได้ & ถูกต้อง</div>
+              <p className="text-xs text-[#7C6B99]">
+                ตรวจ Syntax (AST) + ทดลองรันโค้ดจริงว่าไม่มี Error + ประเมิน % การใช้ AI อัตโนมัติ
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPresetMode("pdf_canva")}
+              className={`text-left rounded-3xl p-5 border-2 transition space-y-2 ${
+                presetMode === "pdf_canva" ? "border-[#9870D4] bg-[#F4ECFE]" : "border-[#E8D9FA] bg-[#FFFAF5]"
+              }`}
+            >
+              <div className="w-10 h-10 rounded-2xl bg-[#DCEBFA] text-[#3B6EA5] flex items-center justify-center">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div className="font-heading font-semibold text-[#684A96]">ตรวจเอกสาร PDF / Canva</div>
+              <p className="text-xs text-[#7C6B99]">
+                ตรวจไฟล์ PDF / ลิงก์ Canva, จำนวนหน้า, เนื้อหา + ประเมิน % การใช้ AI อัตโนมัติ
+              </p>
+            </button>
+
+            <div className="rounded-3xl p-5 border-2 border-[#E8D9FA] bg-[#FFFAF5] space-y-2 flex flex-col justify-between">
+              <div>
+                <div className="w-10 h-10 rounded-2xl bg-[#FFE5A9] text-[#9A6700] flex items-center justify-center mb-2">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div className="font-heading font-semibold text-[#684A96]">กำหนดเกณฑ์ละเอียดเอง</div>
+                <p className="text-xs text-[#7C6B99] mt-1">
+                  เพิ่มคำสำคัญ, ลูป, Test Cases หรือปรับคะแนนแต่ละข้อเองได้ละเอียด
+                </p>
+              </div>
+              {assignmentId && (
+                <Link href={`/assignments/${assignmentId}/criteria`} className="btn-kawaii-soft px-3 py-1.5 text-xs">
+                  เปิดหน้าตั้งเกณฑ์ละเอียด →
+                </Link>
+              )}
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <button onClick={handleApplyPresetAndNext} disabled={busy} className="btn-kawaii px-6 py-3 text-sm">
+              <Sparkles className="w-4 h-4" /> {busy ? "กำลังบันทึกเกณฑ์..." : "บันทึกเกณฑ์และไปขั้นเริ่มตรวจ →"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 6: Start Grading */}
+      {step === 6 && (
+        <div className="card-soft p-8 text-center space-y-4 max-w-xl mx-auto">
+          <div className="w-14 h-14 mx-auto rounded-3xl bg-[#E8D9FA] text-[#684A96] flex items-center justify-center">
+            <Play className="w-7 h-7" />
+          </div>
+          <h2 className="font-heading text-2xl font-semibold text-[#684A96]">ขั้นที่ 6: พร้อมเริ่มตรวจงานแล้ว!</h2>
+          <p className="text-sm text-[#7C6B99]">
+            ใบงาน: <strong>{selectedCw?.title || "งานที่เลือก"}</strong> • ไฟล์ที่เลือกตรวจ: <strong>{chosenCount} ไฟล์</strong>
+          </p>
+          <button onClick={handleStartBatchGrading} disabled={busy} className="btn-kawaii px-8 py-3.5 text-sm">
+            <Play className="w-4 h-4" /> {busy ? "กำลังตรวจโค้ดและคำนวณคะแนน..." : "เริ่มตรวจงานทั้งหมดเลย!"}
+          </button>
+        </div>
+      )}
+
+      {/* STEP 7: Results & Export Excel */}
+      {step === 7 && (
+        <div className="card-soft p-6 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-heading text-xl font-semibold text-[#684A96]">ขั้นที่ 7: ผลการตรวจและส่งออกคะแนน</h2>
+              <p className="text-xs text-[#7C6B99]">คลิกดูโค้ด/ผลรัน/เหตุผล % AI รายคน หรือส่งออกไฟล์ Excel ได้ทันที</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => assignmentId && downloadExcelReport("assignment", { assignment_id: assignmentId })}
+                className="btn-kawaii-peach px-4 py-2 text-xs"
+              >
+                <Download className="w-4 h-4" /> Export Excel (.xlsx)
+              </button>
+              <Link href={`/grading?assignment_id=${assignmentId}`} className="btn-kawaii-soft px-4 py-2 text-xs">
+                เปิดหน้าตรวจละเอียด
+              </Link>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-2xl border border-[#E8D9FA]">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr>
+                  <th className="px-4 py-3">นักเรียน</th>
+                  <th className="px-4 py-3">สถานะ</th>
+                  <th className="px-4 py-3">ตรวจ % AI</th>
+                  <th className="px-4 py-3">คะแนน</th>
+                  <th className="px-4 py-3 text-right">ดูรายละเอียด</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#F4ECFE]">
+                {submissions.map((item) => (
+                  <tr key={item.submission.id}>
+                    <td className="px-4 py-3">
+                      <div className="font-semibold text-[#4A3869]">{item.student.full_name}</div>
+                      <div className="text-[11px] text-[#7C6B99]">{item.student.email}</div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#DDF1E7] text-[#2E7D5B] font-semibold">
+                        <CheckCircle2 className="w-3 h-3" /> {item.submission.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {item.ai_usage_percent != null ? (
+                        <span
+                          className={`px-2.5 py-0.5 rounded-full font-semibold ${
+                            item.ai_usage_percent >= 65
+                              ? "bg-[#F7DCE8] text-[#9D2B5B]"
+                              : item.ai_usage_percent >= 35
+                              ? "bg-[#FFE5A9] text-[#9A6700]"
+                              : "bg-[#DDF1E7] text-[#2E7D5B]"
+                          }`}
+                        >
+                          AI ~{item.ai_usage_percent}%
+                        </span>
+                      ) : (
+                        "-"
+                      )}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-[#684A96]">
+                      {item.submission.final_score != null ? `${item.submission.final_score} / ${maxScore}` : "-"}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link href={`/grading/${item.submission.id}`} className="btn-kawaii-soft px-3 py-1 text-xs">
+                        <Eye className="w-3.5 h-3.5" /> ดูโค้ด & ผลรัน
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
