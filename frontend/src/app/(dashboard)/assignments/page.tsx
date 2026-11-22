@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Copy, FileCode2, Plus, SlidersHorizontal, Upload } from "lucide-react";
+import { Copy, FileCode2, Plus, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
 import { apiFetch } from "@/lib/api";
 import type { Assignment, Classroom, Student } from "@/lib/types";
@@ -41,6 +41,19 @@ export default function AssignmentsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  async function handleDeleteAssignment(asg: Assignment) {
+    if (!window.confirm(`ยืนยันการลบใบงาน "${asg.title}" พร้อมผลตรวจทั้งหมดใช่หรือไม่?`)) return;
+    setError("");
+    setMessage("");
+    try {
+      await apiFetch(`/assignments/${asg.id}`, { method: "DELETE" });
+      setMessage(`ลบใบงาน "${asg.title}" เรียบร้อยแล้ว`);
+      await loadData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ลบใบงานไม่สำเร็จ");
+    }
+  }
 
   async function handleClone() {
     if (!cloneTarget || !cloneTarget.targetClassId) return;
@@ -173,9 +186,15 @@ export default function AssignmentsPage() {
                 </button>
                 <button
                   onClick={() => setCloneTarget({ asg, targetClassId: classrooms[0]?.id || "" })}
-                  className="px-3 py-1.5 rounded-xl bg-[#F2EEFF] text-[#7C5CFC] text-xs font-medium hover:bg-[#E6DFFC] inline-flex items-center gap-1"
+                  className="px-3 py-1.5 rounded-full bg-[#F2EEFF] text-[#7C5CFC] text-xs font-medium hover:bg-[#E6DFFC] inline-flex items-center gap-1"
                 >
                   <Copy className="w-3.5 h-3.5" /> คัดลอกไปห้องอื่น
+                </button>
+                <button
+                  onClick={() => handleDeleteAssignment(asg)}
+                  className="px-3 py-1.5 rounded-full bg-[#F7DCE8]/70 text-[#9D2B5B] text-xs font-medium hover:bg-[#F7DCE8] inline-flex items-center gap-1 ml-auto"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> ลบงาน
                 </button>
               </div>
             </div>

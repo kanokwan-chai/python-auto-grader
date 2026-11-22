@@ -146,6 +146,27 @@ async def get_assignment_detail(
     }
 
 
+@router.delete("/{assignment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_assignment(
+    assignment_id: str,
+    request: Request,
+    actor: ActorContext = Depends(require_teacher_or_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    asg = (
+        await db.execute(
+            select(Assignment).where(Assignment.id == assignment_id, Assignment.workspace_id == actor.workspace_id)
+        )
+    ).scalar_one_or_none()
+    if not asg:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+    title = asg.title
+    await db.delete(asg)
+    await write_audit_log(db, actor, "assignment.delete", "assignment", assignment_id, {"title": title}, request)
+    await db.commit()
+    return None
+
+
 @router.post("/{assignment_id}/clone", response_model=AssignmentOut, status_code=status.HTTP_201_CREATED)
 async def clone_assignment(
     assignment_id: str,

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { CloudUpload, Download, Play, RefreshCw, Eye, SlidersHorizontal } from "lucide-react";
+import { CloudUpload, Download, Play, RefreshCw, Eye, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
 import { apiFetch, downloadExcelReport } from "@/lib/api";
 import type { Assignment, SubmissionSummary } from "@/lib/types";
@@ -112,6 +112,33 @@ export default function GradingQueuePage() {
     }
   }
 
+  async function handleDeleteSubmission(subId: string, studentName: string) {
+    if (!window.confirm(`ยืนยันลบรายการส่งงานของ "${studentName}" ใช่หรือไม่?`)) return;
+    setError("");
+    try {
+      await apiFetch(`/submissions/${subId}`, { method: "DELETE" });
+      await loadSubmissions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ลบรายการส่งงานไม่สำเร็จ");
+    }
+  }
+
+  async function handleDeleteAssignment() {
+    if (!selectedAsgId || !currentAsg) return;
+    if (!window.confirm(`ยืนยันลบใบงาน "${currentAsg.title}" พร้อมรายการส่งงานทั้งหมดใช่หรือไม่?`)) return;
+    setError("");
+    try {
+      await apiFetch(`/assignments/${selectedAsgId}`, { method: "DELETE" });
+      const remaining = assignments.filter((a) => a.id !== selectedAsgId);
+      setAssignments(remaining);
+      setSelectedAsgId(remaining[0]?.id || "");
+      setSubmissions([]);
+      setStatusMsg(`ลบใบงาน "${currentAsg.title}" เรียบร้อยแล้ว`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ลบใบงานไม่สำเร็จ");
+    }
+  }
+
   const currentAsg = assignments.find((a) => a.id === selectedAsgId);
 
   return (
@@ -157,6 +184,12 @@ export default function GradingQueuePage() {
                   <CloudUpload className="w-3.5 h-3.5" /> ส่งคะแนนกลับ Classroom
                 </button>
               )}
+              <button
+                onClick={handleDeleteAssignment}
+                className="inline-flex items-center gap-1 px-3.5 py-2 rounded-full bg-[#F7DCE8]/70 hover:bg-[#F7DCE8] text-[#9D2B5B] text-xs font-semibold transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> ลบใบงานนี้
+              </button>
             </>
           )}
 
@@ -264,10 +297,17 @@ export default function GradingQueuePage() {
                       </button>
                       <Link
                         href={`/grading/${item.submission.id}`}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#7C5CFC] text-white text-xs font-semibold hover:bg-[#6846F5]"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full bg-[#9870D4] text-white text-xs font-semibold hover:bg-[#684A96]"
                       >
                         <Eye className="w-3.5 h-3.5" /> ดูโค้ดและผลตรวจ
                       </Link>
+                      <button
+                        onClick={() => handleDeleteSubmission(item.submission.id, item.student.full_name)}
+                        title="ลบรายการส่งงานนี้"
+                        className="inline-flex items-center p-1.5 rounded-full text-rose-500 hover:bg-[#F7DCE8]/70"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </td>
                   </tr>
                 ))

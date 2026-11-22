@@ -343,6 +343,24 @@ async def create_mixed_submission(
     }
 
 
+@router.delete("/submissions/{submission_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_submission(
+    submission_id: str,
+    actor: ActorContext = Depends(get_workspace_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    sub = (
+        await db.execute(
+            select(Submission).where(Submission.id == submission_id, Submission.workspace_id == actor.workspace_id)
+        )
+    ).scalar_one_or_none()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    await db.delete(sub)
+    await db.commit()
+    return None
+
+
 @router.get("/submissions/{submission_id}")
 async def get_submission_detail(
     submission_id: str,
