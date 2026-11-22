@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -15,6 +16,11 @@ from app.models.models import Workspace, WorkspaceMember
 from app.schemas.schemas import WorkspaceCreate, WorkspaceMemberCreate, WorkspaceMemberOut, WorkspaceOut
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
+
+
+class WorkspaceUpdate(BaseModel):
+    name: str = Field(..., min_length=2, max_length=150)
+    description: Optional[str] = None
 
 
 @router.get("", response_model=List[WorkspaceOut])
@@ -75,6 +81,28 @@ async def create_workspace(
     )
     actor.workspace_id = ws.id
     await write_audit_log(db, actor, "workspace.create", "workspace", ws.id, {"slug": ws.slug}, request)
+    await db.commit()
+    await db.refresh(ws)
+    return WorkspaceOut.model_validate(ws)
+
+
+@router.patch("/{workspace_id}", response_model=WorkspaceOut)
+async def update_workspace(
+    workspace_id: str,
+    body: WorkspaceUpdate,
+    request: Request,
+    actor: ActorContext = Depends(require_teacher_or_owner),
+    db: AsyncSession = Depends(get_db),
+):
+    if actor.workspace_id != workspace_id and not actor.is_super_admin:
+        raise HTTPException(status_code=403, detail="Workspace mismatch")
+    ws = await db.get(Workspace, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    ws.name = body.name.strip()
+    if body.description is not None:
+        ws.description = body.description
+    await write_audit_log(db, actor, "workspace.update", "workspace", ws.id, {"name": ws.name}, request)
     await db.commit()
     await db.refresh(ws)
     return WorkspaceOut.model_validate(ws)

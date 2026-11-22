@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { History, Shield, UserPlus, Users } from "lucide-react";
+import { History, Pencil, Shield, UserPlus, Users } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
 import { apiFetch } from "@/lib/api";
 import type { WorkspaceMember } from "@/lib/types";
@@ -17,9 +17,14 @@ interface AuditLogEntry {
 }
 
 export default function SettingsPage() {
-  const { user, activeWorkspace } = useApp();
+  const { user, activeWorkspace, refreshSession } = useApp();
   const [members, setMembers] = useState<WorkspaceMember[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
+
+  // Rename Workspace
+  const [editingWs, setEditingWs] = useState(false);
+  const [wsNewName, setWsNewName] = useState("");
+  const [savingWs, setSavingWs] = useState(false);
 
   // Add Member Form
   const [email, setEmail] = useState("");
@@ -49,6 +54,27 @@ export default function SettingsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  async function handleRenameWorkspace(e: React.FormEvent) {
+    e.preventDefault();
+    if (!activeWorkspace || !wsNewName.trim()) return;
+    setSavingWs(true);
+    setError("");
+    setMessage("");
+    try {
+      await apiFetch(`/workspaces/${activeWorkspace.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: wsNewName.trim() }),
+      });
+      await refreshSession();
+      setEditingWs(false);
+      setMessage("เปลี่ยนชื่อ Workspace เรียบร้อยแล้ว");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "เปลี่ยนชื่อ Workspace ไม่สำเร็จ");
+    } finally {
+      setSavingWs(false);
+    }
+  }
 
   async function handleAddMember(e: React.FormEvent) {
     e.preventDefault();
@@ -99,9 +125,47 @@ export default function SettingsPage() {
 
       {/* Workspace & Security Summary */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="card-soft p-5 space-y-2">
-          <div className="text-xs font-semibold uppercase tracking-wider text-[#645D7B]">ข้อมูล Workspace</div>
-          <div className="text-lg font-bold text-[#1F1B2E]">{activeWorkspace?.name || "-"}</div>
+        <div className="card-soft p-5 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wider text-[#645D7B]">ข้อมูล Workspace</div>
+            {activeWorkspace && !editingWs && (
+              <button
+                type="button"
+                onClick={() => {
+                  setWsNewName(activeWorkspace.name);
+                  setEditingWs(true);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#F4ECFE] text-[#684A96] hover:bg-[#E8D9FA] text-xs font-semibold transition"
+              >
+                <Pencil className="w-3 h-3" /> เปลี่ยนชื่อ
+              </button>
+            )}
+          </div>
+          {editingWs ? (
+            <form onSubmit={handleRenameWorkspace} className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                required
+                minLength={2}
+                value={wsNewName}
+                onChange={(e) => setWsNewName(e.target.value)}
+                placeholder="พิมพ์ชื่อ Workspace ใหม่"
+                className="flex-1 min-w-44 rounded-xl border border-[#E8D9FA] px-3 py-1.5 text-sm"
+              />
+              <button type="submit" disabled={savingWs} className="btn-kawaii px-3.5 py-1.5 text-xs">
+                {savingWs ? "กำลังบันทึก..." : "บันทึก"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditingWs(false)}
+                className="px-3 py-1.5 rounded-full border border-[#E8D9FA] text-xs text-[#7C6B99]"
+              >
+                ยกเลิก
+              </button>
+            </form>
+          ) : (
+            <div className="text-lg font-bold text-[#1F1B2E]">{activeWorkspace?.name || "-"}</div>
+          )}
           <div className="text-xs text-[#645D7B]">
             Slug: <code className="px-1.5 py-0.5 rounded bg-[#FAF8F5]">{activeWorkspace?.slug}</code> • แผน:{" "}
             <span className="font-semibold text-[#7C5CFC]">{activeWorkspace?.plan_tier || "standard"}</span>
