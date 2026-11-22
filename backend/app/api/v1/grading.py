@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,9 +41,38 @@ from app.schemas.schemas import (
     TestResultOut,
 )
 from app.services.grading_pipeline import execute_grading_run
+from app.services.sandbox_client import SandboxClient
 from app.workers.tasks import run_grading_task
 
 router = APIRouter(prefix="/grading", tags=["Grading"])
+
+
+class PreviewRunIn(BaseModel):
+    code: str = Field(..., min_length=1, max_length=50000)
+    stdin: str = Field(default="", max_length=10000)
+    timeout_seconds: int = Field(default=5, ge=1, le=10)
+
+
+@router.post("/preview-run")
+async def preview_run_code(
+    body: PreviewRunIn,
+    actor: ActorContext = Depends(get_workspace_actor),
+):
+    """Execute Python code safely in Sandbox for teacher Code Viewer live preview."""
+    sbx = SandboxClient()
+    res = await sbx.execute(
+        code=body.code,
+        stdin=body.stdin,
+        timeout_seconds=body.timeout_seconds,
+    )
+    return {
+        "stdout": res.stdout,
+        "stderr": res.stderr,
+        "exit_code": res.exit_code,
+        "timed_out": res.timed_out,
+        "execution_time_ms": res.execution_time_ms,
+        "runtime_used": res.runtime_used,
+    }
 
 
 async def _create_grading_run_record(

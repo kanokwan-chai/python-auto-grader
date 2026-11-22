@@ -9,6 +9,7 @@ import {
   Ban,
   CheckCircle2,
   MessageSquare,
+  Play,
   RefreshCw,
   Sparkles,
   Terminal,
@@ -76,6 +77,19 @@ export default function GradingDetailPage() {
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState("");
   const [error, setError] = useState("");
+
+  // Live Code Preview Runner State
+  const [previewStdin, setPreviewStdin] = useState("");
+  const [previewRunningKey, setPreviewRunningKey] = useState<string | null>(null);
+  const [previewOutput, setPreviewOutput] = useState<{
+    label: string;
+    stdout: string;
+    stderr: string;
+    exit_code: number;
+    timed_out: boolean;
+    execution_time_ms: number;
+    runtime_used: string;
+  } | null>(null);
 
   const loadAll = useCallback(async () => {
     if (!submissionId) return;
@@ -174,6 +188,30 @@ export default function GradingDetailPage() {
       await loadAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ยกเลิกงานตรวจไม่สำเร็จ");
+    }
+  }
+
+  async function handlePreviewRun(runKey: string, label: string, code: string) {
+    if (!code.trim()) return;
+    setPreviewRunningKey(runKey);
+    setError("");
+    try {
+      const res = await apiFetch<{
+        stdout: string;
+        stderr: string;
+        exit_code: number;
+        timed_out: boolean;
+        execution_time_ms: number;
+        runtime_used: string;
+      }>("/grading/preview-run", {
+        method: "POST",
+        body: JSON.stringify({ code, stdin: previewStdin, timeout_seconds: 5 }),
+      });
+      setPreviewOutput({ label, ...res });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "รันโค้ดทดสอบไม่สำเร็จ");
+    } finally {
+      setPreviewRunningKey(null);
     }
   }
 
@@ -291,9 +329,36 @@ export default function GradingDetailPage() {
               </div>
             </div>
 
+            {/* Optional stdin for live preview run */}
+            {((detail?.code_files?.length ?? 0) > 0 || (detail?.notebook_cells?.length ?? 0) > 0) && (
+              <div className="rounded-2xl bg-[#FFFAF5] border border-[#E8D9FA] p-3 flex flex-col sm:flex-row sm:items-center gap-2">
+                <span className="text-[11px] font-semibold text-[#684A96] shrink-0">
+                  Input (stdin) สำหรับรันทดสอบ:
+                </span>
+                <input
+                  type="text"
+                  value={previewStdin}
+                  onChange={(e) => setPreviewStdin(e.target.value)}
+                  placeholder="ใส่ค่า input ถ้าโค้ดมี input() เช่น 10 20 (เว้นว่างได้)"
+                  className="flex-1 rounded-xl border border-[#E8D9FA] bg-white px-3 py-1.5 text-xs code-font"
+                />
+              </div>
+            )}
+
             {detail?.code_files.map((cf) => (
               <div key={cf.artifact_id} className="rounded-2xl border border-[#ECE7F6] overflow-hidden">
-                <div className="bg-[#F2EEFF]/60 px-4 py-2 text-xs font-semibold text-[#1F1B2E]">{cf.filename}</div>
+                <div className="bg-[#F2EEFF]/60 px-4 py-2 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-[#1F1B2E]">{cf.filename}</span>
+                  <button
+                    type="button"
+                    onClick={() => handlePreviewRun(cf.artifact_id, cf.filename, cf.content)}
+                    disabled={previewRunningKey === cf.artifact_id}
+                    className="btn-kawaii px-3 py-1 text-[11px]"
+                  >
+                    <Play className="w-3 h-3" />
+                    {previewRunningKey === cf.artifact_id ? "กำลังรัน..." : "รันโค้ดนี้"}
+                  </button>
+                </div>
                 <pre className="p-4 bg-[#FAF8F5] text-xs code-font overflow-x-auto leading-relaxed">
                   {cf.content.split("\n").map((line, idx) => (
                     <div key={idx} className="flex">
@@ -307,15 +372,79 @@ export default function GradingDetailPage() {
 
             {detail && detail.notebook_cells.length > 0 && (
               <div className="space-y-3">
-                <div className="text-xs font-semibold text-[#645D7B]">Jupyter / Colab Notebook Cells</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-semibold text-[#645D7B]">Jupyter / Colab Notebook Cells</div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const allCode = detail.notebook_cells
+                        .filter((c) => c.cell_type === "code")
+                        .map((c) => c.source_code)
+                        .join("\n\n");
+                      handlePreviewRun("nb-all", "Notebook (ทุก Code Cell)", allCode);
+                    }}
+                    disabled={previewRunningKey === "nb-all"}
+                    className="btn-kawaii px-3.5 py-1.5 text-[11px]"
+                  >
+                    <Play className="w-3 h-3" />
+                    {previewRunningKey === "nb-all" ? "กำลังรันทุก Cell..." : "รันทุก Code Cell"}
+                  </button>
+                </div>
                 {detail.notebook_cells.map((cell) => (
                   <div key={cell.id} className="rounded-2xl border border-[#ECE7F6] overflow-hidden">
-                    <div className="bg-[#FAF8F5] px-3 py-1.5 text-[11px] font-medium text-[#645D7B] border-b border-[#ECE7F6]">
-                      Cell #{cell.cell_index} • {cell.cell_type.toUpperCase()}
+                    <div className="bg-[#FAF8F5] px-3 py-1.5 flex items-center justify-between text-[11px] font-medium text-[#645D7B] border-b border-[#ECE7F6]">
+                      <span>
+                        Cell #{cell.cell_index} • {cell.cell_type.toUpperCase()}
+                      </span>
+                      {cell.cell_type === "code" && cell.source_code.trim() && (
+                        <button
+                          type="button"
+                          onClick={() => handlePreviewRun(cell.id, `Cell #${cell.cell_index}`, cell.source_code)}
+                          disabled={previewRunningKey === cell.id}
+                          className="btn-kawaii-soft px-2.5 py-0.5 text-[11px]"
+                        >
+                          <Play className="w-3 h-3" /> {previewRunningKey === cell.id ? "กำลังรัน..." : "รัน Cell นี้"}
+                        </button>
+                      )}
                     </div>
                     <pre className="p-3.5 text-xs code-font overflow-x-auto bg-white">{cell.source_code}</pre>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {/* Live Execution Output Console */}
+            {previewOutput && (
+              <div className="rounded-2xl border-2 border-[#E8D9FA] bg-[#FFFAF5] p-4 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-heading text-xs font-semibold text-[#684A96] flex items-center gap-1.5">
+                    <Terminal className="w-4 h-4 text-[#9870D4]" /> ผลลัพธ์การรันสด: {previewOutput.label}
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full font-semibold ${
+                        previewOutput.exit_code === 0 && !previewOutput.timed_out
+                          ? "bg-[#DDF1E7] text-[#2E7D5B]"
+                          : "bg-[#F7DCE8] text-[#9D2B5B]"
+                      }`}
+                    >
+                      {previewOutput.timed_out
+                        ? "Timeout"
+                        : previewOutput.exit_code === 0
+                        ? "รันผ่าน (Exit 0)"
+                        : `Error (Exit ${previewOutput.exit_code})`}
+                    </span>
+                    <span className="text-[#7C6B99]">{previewOutput.execution_time_ms} ms</span>
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white border border-[#E8D9FA] p-3 text-xs code-font whitespace-pre-wrap max-h-64 overflow-y-auto text-[#4A3869]">
+                  {previewOutput.stdout ? previewOutput.stdout : <span className="text-[#9E92B5]">(ไม่มีข้อความ stdout)</span>}
+                </div>
+                {previewOutput.stderr && (
+                  <pre className="rounded-xl bg-[#F7DCE8]/60 border border-[#F8E1EE] p-3 text-xs code-font whitespace-pre-wrap text-[#9D2B5B] max-h-48 overflow-y-auto">
+                    {previewOutput.stderr}
+                  </pre>
+                )}
               </div>
             )}
 
