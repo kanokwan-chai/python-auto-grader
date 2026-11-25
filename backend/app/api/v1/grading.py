@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -397,3 +397,49 @@ async def approve_grade(
     )
     await db.commit()
     return {"status": "approved", "submission_id": sub.id, "final_score": float(sub.final_score)}
+
+
+@router.post("/parse-answer-key")
+async def parse_answer_key_file(
+    file: UploadFile = File(...),
+    actor: ActorContext = Depends(get_workspace_actor),
+):
+    """Upload an Answer Key file (.pdf or .txt) and extract structured per-question answer_key items."""
+    from app.services.document_analyzer import (
+        DocumentParseError,
+        analyze_pdf_bytes,
+        parse_answer_key_from_text,
+    )
+
+    filename = file.filename or "answer_key.pdf"
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="ไฟล์เฉลยว่างเปล่า")
+
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    page_count = 1
+    if ext == "pdf" or raw_bytes.lstrip().startswith(b"%PDF"):
+        try:
+            doc = analyze_pdf_bytes(raw_bytes, filename=filename)
+            extracted_text = doc.extracted_text
+            page_count = doc.page_count
+        except DocumentParseError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    elif ext in ("txt", "md", "csv"):
+        extracted_text = raw_bytes.decode("utf-8", errors="replace").replace("\x00", "")
+    else:
+        raise HTTPException(status_code=400, detail="รองรับไฟล์เฉลยเฉพาะนามสกุล .pdf หรือ .txt เท่านั้น")
+
+    answer_key = parse_answer_key_from_text(extracted_text)
+    if not answer_key:
+        raise HTTPException(
+            status_code=400,
+            detail="ไม่พบข้อความเฉลยในไฟล์นี้ (หากไฟล์เฉลยเป็นภาพสแกน กรุณาใช้ไฟล์ PDF ที่มีตัวอักษรหรือพิมพ์ในช่องวางเฉลยเร็ว)",
+        )
+
+    return {
+        "filename": filename,
+        "page_count": page_count,
+        "extracted_text_preview": extracted_text[:3000],
+        "answer_key": answer_key,
+    }

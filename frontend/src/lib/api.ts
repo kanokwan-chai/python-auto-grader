@@ -68,3 +68,27 @@ export async function downloadExcelReport(reportType: string, params: Record<str
   a.remove();
   URL.revokeObjectURL(url);
 }
+
+export async function fetchArtifactPreviewBlobUrl(submissionId: string, artifactId: string): Promise<string> {
+  const token = getStoredToken();
+  const workspaceId = getStoredWorkspaceId();
+  const res = await fetch(`${API_BASE}/submissions/${submissionId}/artifacts/${artifactId}/preview`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Workspace-Id": workspaceId,
+    },
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    let detail = `โหลดพรีวิวเอกสารไม่สำเร็จ (${res.status})`;
+    try {
+      const errJson = await res.json();
+      detail = errJson.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new Error(detail);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}

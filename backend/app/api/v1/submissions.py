@@ -16,7 +16,7 @@ import os
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,6 +25,8 @@ from app.core.database import get_db
 from app.models.models import (
     Assignment,
     AssignmentSubmissionSetting,
+    Classroom,
+    GoogleConnection,
     GradingRun,
     NotebookCell,
     Student,
@@ -36,6 +38,7 @@ from app.models.models import (
 from app.schemas.schemas import ArtifactOut, NotebookCellOut, SubmissionOut
 from app.services.document_analyzer import DocumentParseError, validate_canva_url
 from app.services.file_security import FileSecurityError, inspect_and_extract_zip, validate_single_file
+from app.services.google_service import GoogleClassroomService, GoogleIntegrationError
 from app.services.notebook_parser import (
     NotebookParseError,
     extract_drive_file_id_from_colab_url,
@@ -459,3 +462,67 @@ async def get_submission_detail(
             for f in feedbacks
         ],
     }
+
+
+@router.get("/submissions/{submission_id}/artifacts/{artifact_id}/preview")
+async def preview_submission_artifact(
+    submission_id: str,
+    artifact_id: str,
+    actor: ActorContext = Depends(get_workspace_actor),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream raw PDF (or artifact) bytes inline for the embedded document page viewer."""
+    art = (
+        await db.execute(
+            select(SubmissionArtifact).where(
+                SubmissionArtifact.id == artifact_id,
+                SubmissionArtifact.submission_id == submission_id,
+                SubmissionArtifact.workspace_id == actor.workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if not art:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    storage = StorageService()
+    raw_bytes: Optional[bytes] = None
+    if art.storage_bucket and art.storage_path:
+        try:
+            raw_bytes = await storage.download_bytes(art.storage_bucket, art.storage_path)
+        except Exception:
+            raw_bytes = None
+
+    # Fallback: re-fetch from Google Drive (essential on serverless where /tmp is ephemeral)
+    if raw_bytes is None and art.google_drive_file_id:
+        sub = await db.get(Submission, submission_id)
+        asg = await db.get(Assignment, sub.assignment_id) if sub else None
+        cls = await db.get(Classroom, asg.classroom_id) if asg else None
+        conn = await db.get(GoogleConnection, cls.google_connection_id) if cls and cls.google_connection_id else None
+        if conn:
+            try:
+                google_svc = GoogleClassroomService()
+                raw_bytes, _meta = await google_svc.download_drive_file(db, conn, art.google_drive_file_id)
+                bucket, spath, sha = await storage.upload_bytes(
+                    art.workspace_id,
+                    art.submission_id,
+                    art.original_filename or "document.pdf",
+                    raw_bytes,
+                    "application/pdf" if art.artifact_type == "pdf" else "application/octet-stream",
+                )
+                art.storage_bucket, art.storage_path, art.sha256_hash = bucket, spath, sha
+                await db.commit()
+            except GoogleIntegrationError as exc:
+                raise HTTPException(status_code=502, detail=exc.message)
+
+    if raw_bytes is None:
+        raise HTTPException(status_code=404, detail="ไม่สามารถโหลดไฟล์เอกสารเพื่อพรีวิวได้")
+
+    media_type = "application/pdf" if art.artifact_type == "pdf" else "application/octet-stream"
+    return Response(
+        content=raw_bytes,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": 'inline; filename="document.pdf"',
+            "Cache-Control": "private, max-age=300",
+        },
+    )

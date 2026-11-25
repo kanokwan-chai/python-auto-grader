@@ -311,11 +311,12 @@ export default function GoogleClassroomWizardPage() {
         const cleanedKey = pdfAnswerKey
           .map((item) => ({
             ...item,
-            expected: item.expected.map((s) => s.trim()).filter(Boolean),
+            expected: (item.expected || []).map((s) => s.trim()).filter(Boolean),
+            model_answer: (item.model_answer || "").trim(),
           }))
-          .filter((item) => item.expected.length > 0);
+          .filter((item) => item.expected.length > 0 || (item.match_mode === "open_ended" && item.model_answer));
         if (cleanedKey.length === 0) {
-          setError("กรุณากรอกเฉลยอย่างน้อย 1 ข้อก่อนไปขั้นต่อไป");
+          setError("กรุณากรอกเฉลยหรืออัปโหลดไฟล์เฉลยอย่างน้อย 1 ข้อก่อนไปขั้นต่อไป");
           setBusy(false);
           return;
         }

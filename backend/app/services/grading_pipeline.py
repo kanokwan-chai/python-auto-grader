@@ -42,6 +42,7 @@ from app.services.document_analyzer import (
     DocumentParseError,
     analyze_canva_url,
     analyze_pdf_bytes,
+    refine_open_ended_with_llm,
 )
 from app.services.file_security import FileSecurityError, inspect_and_extract_zip
 from app.services.google_service import GoogleClassroomService, GoogleIntegrationError
@@ -462,6 +463,31 @@ async def execute_grading_run(
             ai_qualitative_scores=(ai_feedback or {}).get("qualitative_scores", {}),
             document_analysis=doc_result,
         )
+
+        # Optional LLM semantic refinement for open-ended PDF questions when LLM_API_KEY is configured
+        recompute_total = False
+        for cr in rubric_eval["criterion_results"]:
+            if cr.check_method == "document" and isinstance(cr.evidence, dict):
+                q_res = cr.evidence.get("question_results")
+                if isinstance(q_res, list) and await refine_open_ended_with_llm(q_res):
+                    total_q_pts = sum(float(q.get("max_points", 1.0)) for q in q_res)
+                    earned_q_pts = sum(float(q.get("awarded_points", 0.0)) for q in q_res)
+                    if total_q_pts > 0:
+                        ratio_dec = Decimal(str(earned_q_pts / total_q_pts))
+                        new_awarded = (cr.max_score * ratio_dec).quantize(Decimal("0.01"))
+                        if new_awarded > cr.max_score:
+                            new_awarded = cr.max_score
+                        cr.awarded_score = new_awarded
+                        cr.status = "passed" if new_awarded >= cr.max_score else ("partial" if new_awarded > 0 else "failed")
+                        cr.evidence["earned_question_points"] = round(earned_q_pts, 2)
+                        recompute_total = True
+        if recompute_total:
+            new_auto = sum((cr.awarded_score for cr in rubric_eval["criterion_results"] if not cr.is_ai_evaluated), Decimal("0.00"))
+            max_asg = Decimal(str(assignment.max_score))
+            if new_auto > max_asg:
+                new_auto = max_asg
+            rubric_eval["automated_score"] = new_auto.quantize(Decimal("0.01"))
+            rubric_eval["final_score"] = rubric_eval["automated_score"]
 
         # Persist TestResult & CriterionResult rows
         for tr in evaluated_tests:

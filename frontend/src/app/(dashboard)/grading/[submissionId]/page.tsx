@@ -8,6 +8,8 @@ import {
   ArrowLeft,
   Ban,
   CheckCircle2,
+  ExternalLink,
+  FileText,
   MessageSquare,
   Play,
   RefreshCw,
@@ -15,7 +17,7 @@ import {
   Terminal,
   XCircle,
 } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, fetchArtifactPreviewBlobUrl } from "@/lib/api";
 import type { CriterionResult, GradingRun, SubmissionSummary, TestResult } from "@/lib/types";
 
 interface SubmissionDetailPayload {
@@ -91,6 +93,13 @@ export default function GradingDetailPage() {
     runtime_used: string;
   } | null>(null);
 
+  // Embedded PDF Document Viewer State
+  const [activePdfArtifactId, setActivePdfArtifactId] = useState<string>("");
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string>("");
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfLoadError, setPdfLoadError] = useState("");
+  const [pdfViewMode, setPdfViewMode] = useState<"page" | "text">("page");
+
   const loadAll = useCallback(async () => {
     if (!submissionId) return;
     try {
@@ -126,6 +135,44 @@ export default function GradingDetailPage() {
       })
       .catch(() => {});
   }, [selectedRunId]);
+
+  const pdfArtifacts = (detail?.artifacts || []).filter((a) => a.artifact_type === "pdf");
+
+  useEffect(() => {
+    if (pdfArtifacts.length > 0 && !activePdfArtifactId) {
+      setActivePdfArtifactId(pdfArtifacts[0].id);
+    }
+  }, [pdfArtifacts.length, activePdfArtifactId]);
+
+  useEffect(() => {
+    if (!submissionId || !activePdfArtifactId) return;
+    let cancelled = false;
+    let createdUrl = "";
+    setPdfLoading(true);
+    setPdfLoadError("");
+    fetchArtifactPreviewBlobUrl(submissionId, activePdfArtifactId)
+      .then((url) => {
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        createdUrl = url;
+        setPdfBlobUrl(url);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setPdfLoadError(err instanceof Error ? err.message : "ไม่สามารถโหลดหน้าเอกสาร PDF ได้");
+          setPdfBlobUrl("");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setPdfLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [submissionId, activePdfArtifactId]);
 
   async function handleRegrade() {
     setBusy(true);
@@ -448,7 +495,92 @@ export default function GradingDetailPage() {
               </div>
             )}
 
-            {Boolean(runDetail?.run.ast_summary && (runDetail.run.ast_summary as Record<string, unknown>).document_analysis) && (() => {
+            {/* Embedded Full-Page PDF Viewer */}
+            {pdfArtifacts.length > 0 && (
+              <div className="rounded-2xl border border-[#E8D9FA] bg-[#FFFAF5] p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-bold text-sm text-[#684A96] flex items-center gap-1.5">
+                    <FileText className="w-4 h-4 text-[#9870D4]" /> พรีวิวหน้าเอกสาร PDF
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setPdfViewMode("page")}
+                      className={`px-3 py-1 rounded-full text-[11px] font-semibold transition ${
+                        pdfViewMode === "page"
+                          ? "bg-[#9870D4] text-white"
+                          : "bg-white border border-[#E8D9FA] text-[#684A96]"
+                      }`}
+                    >
+                      มุมมองหน้าเอกสาร
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPdfViewMode("text")}
+                      className={`px-3 py-1 rounded-full text-[11px] font-semibold transition ${
+                        pdfViewMode === "text"
+                          ? "bg-[#9870D4] text-white"
+                          : "bg-white border border-[#E8D9FA] text-[#684A96]"
+                      }`}
+                    >
+                      ข้อความที่ระบบอ่านได้
+                    </button>
+                    {pdfBlobUrl && (
+                      <a
+                        href={pdfBlobUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-semibold bg-white border border-[#E8D9FA] text-[#684A96] hover:bg-[#F4ECFE]"
+                      >
+                        <ExternalLink className="w-3 h-3" /> เปิดเต็มจอ
+                      </a>
+                    )}
+                  </div>
+                </div>
+
+                {pdfArtifacts.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {pdfArtifacts.map((pa, idx) => (
+                      <button
+                        key={pa.id}
+                        type="button"
+                        onClick={() => setActivePdfArtifactId(pa.id)}
+                        className={`px-3 py-1 rounded-full text-[11px] font-semibold transition ${
+                          activePdfArtifactId === pa.id
+                            ? "bg-[#E8D9FA] text-[#4A3869]"
+                            : "bg-white border border-[#E8D9FA] text-[#7C6B99]"
+                        }`}
+                      >
+                        ไฟล์ #{idx + 1}: {pa.original_filename || "document.pdf"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {pdfViewMode === "page" && (
+                  <div>
+                    {pdfLoading ? (
+                      <div className="h-[520px] rounded-xl border border-[#E8D9FA] bg-white flex items-center justify-center text-xs text-[#7C6B99]">
+                        กำลังโหลดหน้าเอกสาร PDF...
+                      </div>
+                    ) : pdfBlobUrl ? (
+                      <iframe
+                        src={pdfBlobUrl}
+                        title="PDF Document Preview"
+                        className="w-full h-[640px] rounded-xl border border-[#E8D9FA] bg-white"
+                      />
+                    ) : (
+                      <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-700">
+                        {pdfLoadError || "ไม่สามารถแสดงหน้าเอกสาร PDF ได้ในขณะนี้ (ลองสลับไปดูแท็บข้อความที่ระบบอ่านได้)"}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {Boolean(runDetail?.run.ast_summary && (runDetail.run.ast_summary as Record<string, unknown>).document_analysis) &&
+              (pdfArtifacts.length === 0 || pdfViewMode === "text") && (() => {
               const doc = (runDetail!.run.ast_summary as Record<string, unknown>).document_analysis as {
                 source_type?: string;
                 title?: string;
@@ -641,7 +773,11 @@ export default function GradingDetailPage() {
                         question: string;
                         prompt?: string;
                         expected: string[];
+                        model_answer?: string;
+                        match_mode?: string;
                         student_answer: string;
+                        analysis_th?: string;
+                        score_ratio?: number;
                         correct: boolean;
                         awarded_points: number;
                         max_points: number;
@@ -664,39 +800,55 @@ export default function GradingDetailPage() {
                           <div className="text-[11px] font-semibold text-[#684A96]">
                             ผลตรวจเอกสาร PDF รายข้อ:
                           </div>
-                          {qResults.map((qr, qIdx) => (
-                            <div
-                              key={qIdx}
-                              className={`rounded-lg border px-2.5 py-2 text-xs ${
-                                qr.correct
-                                  ? "bg-[#ECFDF5] border-emerald-200 text-emerald-900"
-                                  : "bg-[#FFF1F2] border-rose-200 text-rose-900"
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-2 font-semibold">
-                                <span className="flex items-center gap-1.5">
-                                  {qr.correct ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          {qResults.map((qr, qIdx) => {
+                            const isOpen = qr.match_mode === "open_ended";
+                            const isPartial = !qr.correct && qr.awarded_points > 0;
+                            const cardTone = qr.correct
+                              ? "bg-[#ECFDF5] border-emerald-200 text-emerald-900"
+                              : isPartial
+                              ? "bg-[#FFFBEB] border-amber-200 text-amber-900"
+                              : "bg-[#FFF1F2] border-rose-200 text-rose-900";
+                            return (
+                              <div key={qIdx} className={`rounded-lg border px-2.5 py-2 text-xs ${cardTone}`}>
+                                <div className="flex items-center justify-between gap-2 font-semibold">
+                                  <span className="flex items-center gap-1.5 flex-wrap">
+                                    {qr.correct ? (
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    ) : isPartial ? (
+                                      <Sparkles className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                    ) : (
+                                      <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                    )}
+                                    ข้อ {qr.question}{" "}
+                                    {isOpen ? "(ปลายเปิด)" : qr.correct ? "(ถูก)" : "(ผิด)"}
+                                  </span>
+                                  <span>
+                                    {qr.awarded_points} / {qr.max_points} คะแนน
+                                  </span>
+                                </div>
+                                <div className="mt-1 text-[11px] opacity-90 space-y-0.5">
+                                  <div>
+                                    <strong>คำตอบที่อ่านได้:</strong>{" "}
+                                    {qr.student_answer ? qr.student_answer : "(ไม่พบคำตอบของข้อนี้ใน PDF)"}
+                                  </div>
+                                  {isOpen && qr.model_answer ? (
+                                    <div>
+                                      <strong>แนวคำตอบโดยรวมของครู:</strong> {qr.model_answer}
+                                    </div>
                                   ) : (
-                                    <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                    <div>
+                                      <strong>เฉลยที่ถูกต้อง:</strong> {(qr.expected || []).join(" / ")}
+                                    </div>
                                   )}
-                                  ข้อ {qr.question} {qr.correct ? "(ถูก)" : "(ผิด)"}
-                                </span>
-                                <span>
-                                  {qr.awarded_points} / {qr.max_points} คะแนน
-                                </span>
-                              </div>
-                              <div className="mt-1 text-[11px] opacity-90">
-                                <div>
-                                  <strong>คำตอบที่อ่านได้:</strong>{" "}
-                                  {qr.student_answer ? qr.student_answer : "(ไม่พบคำตอบของข้อนี้ใน PDF)"}
-                                </div>
-                                <div>
-                                  <strong>เฉลยที่ถูกต้อง:</strong> {(qr.expected || []).join(" / ")}
+                                  {qr.analysis_th && (
+                                    <div className="pt-0.5 font-medium">
+                                      <strong>บทวิเคราะห์:</strong> {qr.analysis_th}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                     </div>
