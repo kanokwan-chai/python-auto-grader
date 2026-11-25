@@ -94,12 +94,16 @@ async def list_assignment_submissions(
         artifacts = artifacts_by_sub.get(sub.id, [])
         artifact_types = sorted({a.artifact_type for a in artifacts})
         ai_usage_percent = None
+        graded_artifacts = None
         if sub.latest_grading_run_id and sub.latest_grading_run_id in runs_by_id:
             latest_run = runs_by_id[sub.latest_grading_run_id]
             if isinstance(latest_run.runtime_summary, dict):
                 ai_info = latest_run.runtime_summary.get("ai_usage")
                 if isinstance(ai_info, dict):
                     ai_usage_percent = ai_info.get("estimated_ai_percent")
+                ga = latest_run.runtime_summary.get("graded_artifacts")
+                if isinstance(ga, list):
+                    graded_artifacts = ga
         output.append(
             {
                 "submission": SubmissionOut.model_validate(sub),
@@ -120,6 +124,7 @@ async def list_assignment_submissions(
                     }
                     for a in artifacts
                 ],
+                "graded_artifacts": graded_artifacts,
                 "ai_usage_percent": ai_usage_percent,
             }
         )

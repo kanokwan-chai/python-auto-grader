@@ -104,6 +104,11 @@ export interface SubmissionSummary {
     colab_url?: string | null;
     fetch_status: string;
   }>;
+  graded_artifacts?: Array<{
+    id: string;
+    artifact_type: string;
+    filename: string;
+  }> | null;
   ai_usage_percent?: number | null;
 }
 

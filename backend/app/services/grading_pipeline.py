@@ -410,6 +410,14 @@ async def execute_grading_run(
             )
         )
         runtime_summary["ai_usage"] = ai_usage_info
+        runtime_summary["graded_artifacts"] = [
+            {
+                "id": a.id,
+                "artifact_type": a.artifact_type,
+                "filename": a.original_filename or a.colab_url or a.artifact_type,
+            }
+            for a in artifacts
+        ]
         run.runtime_summary = runtime_summary
 
         # 3. AI Code / Document Review (Thai Feedback & Qualitative Criteria)

@@ -778,7 +778,19 @@ export default function GoogleClassroomWizardPage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-heading text-xl font-semibold text-[#684A96]">ขั้นที่ 7: ผลการตรวจและส่งออกคะแนน</h2>
-              <p className="text-xs text-[#7C6B99]">คลิกดูโค้ด/ผลรัน/เหตุผล % AI รายคน หรือส่งออกไฟล์ Excel ได้ทันที</p>
+              <div className="flex flex-wrap items-center gap-2 mt-1">
+                {selectedCourse && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#F4ECFE] text-[#684A96] border border-[#E8D9FA]">
+                    ห้องเรียน: {selectedCourse.name}
+                  </span>
+                )}
+                {selectedCw && (
+                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#DCEBFA] text-[#285B8E]">
+                    งานที่ตรวจ: {selectedCw.title}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[#7C6B99] mt-1">คลิกดูโค้ด/ผลรัน/เหตุผล % AI รายคน หรือส่งออกไฟล์ Excel ได้ทันที</p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -808,6 +820,7 @@ export default function GoogleClassroomWizardPage() {
               <thead>
                 <tr>
                   <th className="px-4 py-3">นักเรียน</th>
+                  <th className="px-4 py-3">งาน / ไฟล์ที่นำมาตรวจ</th>
                   <th className="px-4 py-3">สถานะ</th>
                   <th className="px-4 py-3">ตรวจ % AI</th>
                   <th className="px-4 py-3">คะแนน</th>
@@ -815,11 +828,48 @@ export default function GoogleClassroomWizardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#F4ECFE]">
-                {submissions.map((item) => (
+                {submissions.map((item) => {
+                  const allArts = item.artifacts || [];
+                  const gradedList =
+                    item.graded_artifacts && item.graded_artifacts.length > 0
+                      ? item.graded_artifacts
+                      : allArts
+                          .filter((a) => selectedArtifactIds[a.id] ?? true)
+                          .map((a) => ({
+                            id: a.id,
+                            artifact_type: a.artifact_type,
+                            filename: a.original_filename || a.colab_url || a.artifact_type,
+                          }));
+                  return (
                   <tr key={item.submission.id}>
                     <td className="px-4 py-3">
                       <div className="font-semibold text-[#4A3869]">{item.student.full_name}</div>
                       <div className="text-[11px] text-[#7C6B99]">{item.student.email}</div>
+                    </td>
+                    <td className="px-4 py-3 max-w-[260px]">
+                      {gradedList.length === 0 ? (
+                        <span className="text-[#7C6B99]">ไม่มีไฟล์แนบ</span>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex flex-wrap gap-1">
+                            {gradedList.map((ga) => (
+                              <span
+                                key={ga.id}
+                                title={ga.filename}
+                                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#F4ECFE] border border-[#E8D9FA] text-[#4A3869] font-medium max-w-[240px] truncate"
+                              >
+                                <span className="text-[10px] font-bold uppercase text-[#7C5CFC]">[{ga.artifact_type}]</span>
+                                <span className="truncate">{ga.filename}</span>
+                              </span>
+                            ))}
+                          </div>
+                          {allArts.length > gradedList.length && (
+                            <span className="text-[10px] text-[#7C6B99]">
+                              (เลือกตรวจ {gradedList.length} จาก {allArts.length} ไฟล์)
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#DDF1E7] text-[#2E7D5B] font-semibold">
@@ -851,7 +901,8 @@ export default function GoogleClassroomWizardPage() {
                       </Link>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

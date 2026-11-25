@@ -218,7 +218,7 @@ export default function GradingQueuePage() {
             <thead className="bg-[#F2EEFF]/70 text-[#645D7B] text-xs uppercase">
               <tr>
                 <th className="px-5 py-3.5">นักเรียน</th>
-                <th className="px-5 py-3.5">รูปแบบไฟล์ที่ส่ง</th>
+                <th className="px-5 py-3.5">งาน / ไฟล์ที่นำมาตรวจ</th>
                 <th className="px-5 py-3.5">สถานะ</th>
                 <th className="px-5 py-3.5">ตรวจ % AI</th>
                 <th className="px-5 py-3.5">คะแนน</th>
@@ -239,16 +239,40 @@ export default function GradingQueuePage() {
                       <div className="font-semibold text-[#1F1B2E]">{item.student.full_name}</div>
                       <div className="text-xs text-[#645D7B]">{item.student.email}</div>
                     </td>
-                    <td className="px-5 py-3.5">
+                    <td className="px-5 py-3.5 max-w-[260px]">
                       <div className="flex flex-wrap gap-1.5">
-                        {item.artifact_types.map((t) => (
-                          <span
-                            key={t}
-                            className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F2EEFF] text-[#7C5CFC]"
-                          >
-                            {t}
-                          </span>
-                        ))}
+                        {item.graded_artifacts && item.graded_artifacts.length > 0 ? (
+                          item.graded_artifacts.map((ga) => (
+                            <span
+                              key={ga.id}
+                              title={ga.filename}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F2EEFF] text-[#4A3869] max-w-[240px] truncate"
+                            >
+                              <span className="text-[10px] font-bold uppercase text-[#7C5CFC]">[{ga.artifact_type}]</span>
+                              <span className="truncate">{ga.filename}</span>
+                            </span>
+                          ))
+                        ) : item.artifacts && item.artifacts.length > 0 ? (
+                          item.artifacts.map((a) => (
+                            <span
+                              key={a.id}
+                              title={a.original_filename || a.colab_url || a.artifact_type}
+                              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F2EEFF] text-[#4A3869] max-w-[240px] truncate"
+                            >
+                              <span className="text-[10px] font-bold uppercase text-[#7C5CFC]">[{a.artifact_type}]</span>
+                              <span className="truncate">{a.original_filename || a.colab_url || a.artifact_type}</span>
+                            </span>
+                          ))
+                        ) : (
+                          item.artifact_types.map((t) => (
+                            <span
+                              key={t}
+                              className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#F2EEFF] text-[#7C5CFC]"
+                            >
+                              {t}
+                            </span>
+                          ))
+                        )}
                       </div>
                     </td>
                     <td className="px-5 py-3.5">
