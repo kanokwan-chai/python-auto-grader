@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, FileText, Plus, Play, Sparkles, Trash2 } from "lucide-react";
+import PdfAnswerKeyBuilder, { type PdfAnswerKeyItem } from "@/components/grading/PdfAnswerKeyBuilder";
 import { apiFetch } from "@/lib/api";
 import type { Assignment } from "@/lib/types";
 
@@ -92,6 +93,25 @@ export default function AssignmentCriteriaPage() {
 
   const maxScore = Number(assignment?.max_score ?? 10);
   const rubricSum = rubrics.reduce((s, r) => s + Number(r.max_score || 0), 0);
+
+  function applyPdfAnswerKeyPreset() {
+    setRubrics([
+      {
+        name: "ตรวจเอกสาร PDF ตามเฉลยรายข้อ",
+        description: "อ่านเอกสาร PDF ของนักเรียนและให้คะแนนตามข้อที่ตอบถูกต้อง",
+        max_score: maxScore,
+        check_method: "document",
+        rule_config_json: JSON.stringify({
+          answer_key: [
+            { question: "1", expected: ["ก"], match_mode: "exact_choice", points: 1 },
+            { question: "2", expected: ["ข"], match_mode: "exact_choice", points: 1 },
+            { question: "3", expected: ["ค"], match_mode: "exact_choice", points: 1 },
+          ],
+        }),
+        allow_partial_credit: true,
+      },
+    ]);
+  }
 
   function applyPdfCanvaPreset() {
     const half = Math.max(1, Math.round((maxScore * 0.4) * 2) / 2);
@@ -230,8 +250,11 @@ export default function AssignmentCriteriaPage() {
           <button type="button" onClick={applyPythonPreset} className="btn-kawaii-soft px-3.5 py-1.5 text-xs">
             + เทมเพลตตรวจโค้ด Python
           </button>
+          <button type="button" onClick={applyPdfAnswerKeyPreset} className="btn-kawaii-soft px-3.5 py-1.5 text-xs">
+            <CheckCircle2 className="w-3.5 h-3.5" /> + เทมเพลตตรวจ PDF ตามเฉลยรายข้อ
+          </button>
           <button type="button" onClick={applyPdfCanvaPreset} className="btn-kawaii-soft px-3.5 py-1.5 text-xs">
-            <FileText className="w-3.5 h-3.5" /> + เทมเพลตตรวจ PDF / Canva
+            <FileText className="w-3.5 h-3.5" /> + เทมเพลตตรวจ PDF / Canva ทั่วไป
           </button>
         </div>
       </div>
@@ -291,11 +314,24 @@ export default function AssignmentCriteriaPage() {
               ยังไม่มีเกณฑ์ กด &ldquo;+ เพิ่มเกณฑ์&rdquo; หรือเลือกเทมเพลตสำเร็จรูปด้านบนได้เลย
             </p>
           ) : (
-            rubrics.map((r, i) => (
+            rubrics.map((r, i) => {
+              let parsedAnswerKey: PdfAnswerKeyItem[] | null = null;
+              if (r.check_method === "document") {
+                try {
+                  const obj = JSON.parse(r.rule_config_json || "{}");
+                  if (Array.isArray(obj.answer_key)) {
+                    parsedAnswerKey = obj.answer_key;
+                  }
+                } catch {
+                  parsedAnswerKey = null;
+                }
+              }
+              return (
               <div
                 key={i}
-                className="rounded-2xl bg-[#FFFAF5] border border-[#E8D9FA] p-4 grid grid-cols-1 md:grid-cols-12 gap-3 items-center"
+                className="rounded-2xl bg-[#FFFAF5] border border-[#E8D9FA] p-4 space-y-3"
               >
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                 <input
                   required
                   placeholder="ชื่อเกณฑ์ เช่น มีหัวข้อครบ / ใช้ลูป for"
@@ -352,8 +388,53 @@ export default function AssignmentCriteriaPage() {
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
+                </div>
+
+                {r.check_method === "document" && (
+                  <div className="pt-1">
+                    {parsedAnswerKey !== null ? (
+                      <PdfAnswerKeyBuilder
+                        items={parsedAnswerKey}
+                        onChange={(newItems) => {
+                          const next = [...rubrics];
+                          let baseObj: Record<string, unknown> = {};
+                          try {
+                            baseObj = JSON.parse(next[i].rule_config_json || "{}");
+                          } catch {
+                            baseObj = {};
+                          }
+                          baseObj.answer_key = newItems;
+                          next[i].rule_config_json = JSON.stringify(baseObj);
+                          setRubrics(next);
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = [...rubrics];
+                          let baseObj: Record<string, unknown> = {};
+                          try {
+                            baseObj = JSON.parse(next[i].rule_config_json || "{}");
+                          } catch {
+                            baseObj = {};
+                          }
+                          baseObj.answer_key = [
+                            { question: "1", expected: ["ก"], match_mode: "exact_choice", points: 1 },
+                          ];
+                          next[i].rule_config_json = JSON.stringify(baseObj);
+                          setRubrics(next);
+                        }}
+                        className="btn-kawaii-soft px-3 py-1.5 text-xs"
+                      >
+                        + เปิดตารางตั้งเฉลยรายข้อสำหรับเอกสาร PDF นี้
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-            ))
+              );
+            })
           )}
         </div>
         <div className="text-[11px] text-[#7C6B99] bg-[#F4ECFE]/60 rounded-2xl p-3">

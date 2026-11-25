@@ -6,9 +6,11 @@ import io
 
 from app.services.ai_detector import estimate_ai_usage
 from app.services.document_analyzer import (
+    DocumentAnalysisResult,
     DocumentParseError,
     analyze_pdf_bytes,
     evaluate_document_rule,
+    extract_numbered_answers,
     is_canva_url,
     validate_canva_url,
 )
@@ -75,3 +77,44 @@ async def test_ai_usage_estimator_python_and_document():
     res_doc = await estimate_ai_usage(ai_doc, content_type="document_text")
     assert res_doc["estimated_ai_percent"] >= 35
     assert len(res_doc["signals_th"]) >= 1
+
+
+def test_pdf_answer_key_per_question_grading():
+    sample_pdf_text = (
+        "ใบงานเรื่อง โครงสร้างข้อมูล\n"
+        "ข้อ 1. ตอบ ก\n"
+        "ข้อ 2. การทำงานของคิวคือ FIFO (เข้าก่อนออกก่อน)\n"
+        "3. ตอบ การคำนวณค่าเฉลี่ย 3.14\n"
+        "4) ตอบ B\n"
+        "ข้อที่ ๕ ตอบ ผิด\n"
+    )
+    parsed = extract_numbered_answers(sample_pdf_text)
+    assert set(parsed.keys()) == {"1", "2", "3", "4", "5"}
+    assert "3.14" in parsed["3"]
+
+    doc = DocumentAnalysisResult(
+        source_type="pdf",
+        title="worksheet.pdf",
+        page_count=1,
+        word_count=25,
+        char_count=len(sample_pdf_text),
+        extracted_text=sample_pdf_text,
+    )
+
+    rule = {
+        "answer_key": [
+            {"question": "1", "expected": ["ก"], "match_mode": "exact_choice", "points": 2},
+            {"question": "2", "expected": ["FIFO", "เข้าก่อนออกก่อน"], "match_mode": "all", "points": 2},
+            # 'ก' must NOT falsely match inside 'การคำนวณ'
+            {"question": "3", "expected": ["ก"], "match_mode": "exact_choice", "points": 2},
+            {"question": "4", "expected": ["B"], "match_mode": "exact_choice", "points": 2},
+            {"question": "5", "expected": ["ถูก"], "match_mode": "any", "points": 2},
+        ]
+    }
+    passed, ratio, reason, ev = evaluate_document_rule(doc, rule)
+    assert passed is False
+    assert ratio == pytest.approx(0.6)  # 3/5 questions correct (Q1, Q2, Q4)
+    assert ev["correct_count"] == 3
+    assert ev["total_questions"] == 5
+    assert [q["correct"] for q in ev["question_results"]] == [True, True, False, True, False]
+    assert "ถูก 3/5 ข้อ" in reason

@@ -18,6 +18,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useApp } from "@/components/providers/AppProvider";
+import PdfAnswerKeyBuilder, { type PdfAnswerKeyItem } from "@/components/grading/PdfAnswerKeyBuilder";
 import { apiFetch, downloadExcelReport } from "@/lib/api";
 import type { GoogleConnection, SubmissionSummary } from "@/lib/types";
 
@@ -59,7 +60,11 @@ export default function GoogleClassroomWizardPage() {
   const [assignmentId, setAssignmentId] = useState<string>("");
   const [submissions, setSubmissions] = useState<SubmissionSummary[]>([]);
   const [selectedArtifactIds, setSelectedArtifactIds] = useState<Record<string, boolean>>({});
-  const [presetMode, setPresetMode] = useState<"python_run" | "pdf_canva" | "custom">("python_run");
+  const [presetMode, setPresetMode] = useState<"python_run" | "pdf_canva" | "pdf_answer_key" | "custom">("python_run");
+  const [pdfAnswerKey, setPdfAnswerKey] = useState<PdfAnswerKeyItem[]>([
+    { question: "1", expected: ["ก"], match_mode: "exact_choice", points: 1 },
+    { question: "2", expected: ["ข"], match_mode: "exact_choice", points: 1 },
+  ]);
   const [maxScore, setMaxScore] = useState<number>(10);
 
   const [busy, setBusy] = useState(false);
@@ -298,6 +303,32 @@ export default function GoogleClassroomWizardPage() {
               max_score: Math.max(1, maxScore - half),
               check_method: "document",
               rule_config: { min_words: 15 },
+              allow_partial_credit: true,
+            },
+          ]),
+        });
+      } else if (presetMode === "pdf_answer_key") {
+        const cleanedKey = pdfAnswerKey
+          .map((item) => ({
+            ...item,
+            expected: item.expected.map((s) => s.trim()).filter(Boolean),
+          }))
+          .filter((item) => item.expected.length > 0);
+        if (cleanedKey.length === 0) {
+          setError("กรุณากรอกเฉลยอย่างน้อย 1 ข้อก่อนไปขั้นต่อไป");
+          setBusy(false);
+          return;
+        }
+        await apiFetch(`/assignments/${assignmentId}/rubric`, {
+          method: "PUT",
+          body: JSON.stringify([
+            {
+              order_index: 0,
+              name: `ตรวจเอกสาร PDF ตามเฉลย (${cleanedKey.length} ข้อ)`,
+              description: "อ่านข้อความจากไฟล์ PDF ของนักเรียนและตรวจให้คะแนนตามข้อที่ตอบถูกต้อง",
+              max_score: maxScore,
+              check_method: "document",
+              rule_config: { answer_key: cleanedKey },
               allow_partial_credit: true,
             },
           ]),
@@ -649,7 +680,7 @@ export default function GoogleClassroomWizardPage() {
       {step === 5 && (
         <div className="card-soft p-6 space-y-5">
           <h2 className="font-heading text-xl font-semibold text-[#684A96]">ขั้นที่ 5: เลือกเกณฑ์การตรวจ</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <button
               type="button"
               onClick={() => setPresetMode("python_run")}
@@ -667,6 +698,21 @@ export default function GoogleClassroomWizardPage() {
 
             <button
               type="button"
+              onClick={() => setPresetMode("pdf_answer_key")}
+              className={`text-left rounded-3xl p-5 border-2 transition space-y-2 ${presetMode === "pdf_answer_key" ? "border-[#9870D4] bg-[#F4ECFE]" : "border-[#E8D9FA] bg-[#FFFAF5]"
+                }`}
+            >
+              <div className="w-10 h-10 rounded-2xl bg-[#DDF1E7] text-[#2E7D5B] flex items-center justify-center">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div className="font-heading font-semibold text-[#684A96]">ตรวจเอกสาร PDF ตามเฉลยรายข้อ</div>
+              <p className="text-xs text-[#7C6B99]">
+                อ่านเอกสาร PDF ของนักเรียนแล้วตรวจให้คะแนนตามข้อที่ตอบถูก (รองรับ ก/ข/ค/ง, A/B/C/D และคำตอบข้อความ)
+              </p>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setPresetMode("pdf_canva")}
               className={`text-left rounded-3xl p-5 border-2 transition space-y-2 ${presetMode === "pdf_canva" ? "border-[#9870D4] bg-[#F4ECFE]" : "border-[#E8D9FA] bg-[#FFFAF5]"
                 }`}
@@ -674,7 +720,7 @@ export default function GoogleClassroomWizardPage() {
               <div className="w-10 h-10 rounded-2xl bg-[#DCEBFA] text-[#3B6EA5] flex items-center justify-center">
                 <FileText className="w-5 h-5" />
               </div>
-              <div className="font-heading font-semibold text-[#684A96]">ตรวจเอกสาร PDF / Canva</div>
+              <div className="font-heading font-semibold text-[#684A96]">ตรวจเอกสาร PDF / Canva ทั่วไป</div>
               <p className="text-xs text-[#7C6B99]">
                 ตรวจไฟล์ PDF / ลิงก์ Canva, จำนวนหน้า, เนื้อหา + ประเมิน % การใช้ AI อัตโนมัติ
               </p>
@@ -697,6 +743,10 @@ export default function GoogleClassroomWizardPage() {
               )}
             </div>
           </div>
+
+          {presetMode === "pdf_answer_key" && (
+            <PdfAnswerKeyBuilder items={pdfAnswerKey} onChange={setPdfAnswerKey} />
+          )}
 
           <div className="flex justify-end">
             <button onClick={handleApplyPresetAndNext} disabled={busy} className="btn-kawaii px-6 py-3 text-sm">

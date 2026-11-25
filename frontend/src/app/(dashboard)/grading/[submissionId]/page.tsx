@@ -635,20 +635,73 @@ export default function GradingDetailPage() {
               <p className="text-xs text-[#645D7B]">ยังไม่มีผลเกณฑ์ Rubric</p>
             ) : (
               <div className="space-y-2.5">
-                {runDetail.criterion_results.map((cr) => (
-                  <div key={cr.id} className="rounded-xl bg-[#FAF8F5] border border-[#ECE7F6] p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold text-[#1F1B2E]">{cr.criterion_name}</span>
-                      <span className="text-xs font-bold text-[#7C5CFC]">
-                        {cr.awarded_score} / {cr.max_score}
-                      </span>
+                {runDetail.criterion_results.map((cr) => {
+                  const qResults = Array.isArray((cr.evidence as Record<string, unknown> | undefined)?.question_results)
+                    ? ((cr.evidence as Record<string, unknown>).question_results as Array<{
+                        question: string;
+                        prompt?: string;
+                        expected: string[];
+                        student_answer: string;
+                        correct: boolean;
+                        awarded_points: number;
+                        max_points: number;
+                      }>)
+                    : [];
+                  return (
+                    <div key={cr.id} className="rounded-xl bg-[#FAF8F5] border border-[#ECE7F6] p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-[#1F1B2E]">{cr.criterion_name}</span>
+                        <span className="text-xs font-bold text-[#7C5CFC]">
+                          {cr.awarded_score} / {cr.max_score}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-[#645D7B]">
+                        วิธีตรวจ: {cr.check_method} • สถานะ: {cr.status}
+                      </div>
+                      {cr.reason && <p className="text-xs text-[#1F1B2E]">{cr.reason}</p>}
+                      {qResults.length > 0 && (
+                        <div className="pt-2 border-t border-[#ECE7F6] space-y-1.5">
+                          <div className="text-[11px] font-semibold text-[#684A96]">
+                            ผลตรวจเอกสาร PDF รายข้อ:
+                          </div>
+                          {qResults.map((qr, qIdx) => (
+                            <div
+                              key={qIdx}
+                              className={`rounded-lg border px-2.5 py-2 text-xs ${
+                                qr.correct
+                                  ? "bg-[#ECFDF5] border-emerald-200 text-emerald-900"
+                                  : "bg-[#FFF1F2] border-rose-200 text-rose-900"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-2 font-semibold">
+                                <span className="flex items-center gap-1.5">
+                                  {qr.correct ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                  ) : (
+                                    <XCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                                  )}
+                                  ข้อ {qr.question} {qr.correct ? "(ถูก)" : "(ผิด)"}
+                                </span>
+                                <span>
+                                  {qr.awarded_points} / {qr.max_points} คะแนน
+                                </span>
+                              </div>
+                              <div className="mt-1 text-[11px] opacity-90">
+                                <div>
+                                  <strong>คำตอบที่อ่านได้:</strong>{" "}
+                                  {qr.student_answer ? qr.student_answer : "(ไม่พบคำตอบของข้อนี้ใน PDF)"}
+                                </div>
+                                <div>
+                                  <strong>เฉลยที่ถูกต้อง:</strong> {(qr.expected || []).join(" / ")}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="text-[11px] text-[#645D7B] mt-1">
-                      วิธีตรวจ: {cr.check_method} • สถานะ: {cr.status}
-                    </div>
-                    {cr.reason && <p className="text-xs text-[#1F1B2E] mt-1">{cr.reason}</p>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

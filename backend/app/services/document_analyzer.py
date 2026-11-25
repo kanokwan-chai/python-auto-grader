@@ -44,6 +44,7 @@ class DocumentAnalysisResult:
     notes_th: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
+        parsed_answers = extract_numbered_answers(self.extracted_text)
         return {
             "source_type": self.source_type,
             "title": self.title,
@@ -55,9 +56,135 @@ class DocumentAnalysisResult:
             "producer": self.producer,
             "canva_url": self.canva_url,
             "accessible": self.accessible,
-            "text_preview": self.extracted_text[:1500],
+            "text_preview": self.extracted_text[:6000],
+            "detected_question_count": len(parsed_answers),
             "notes_th": self.notes_th,
         }
+
+
+THAI_DIGITS_TABLE = str.maketrans("๐๑๒๓๔๕๖๗๘๙", "0123456789")
+
+# Matches question markers like: ข้อ 1, ข้อที่ 1., 1., 1), (1), Q1:, Q1.
+# Carefully avoids decimal numbers like 3.14 by requiring non-digit after '.'
+_QUESTION_MARKER_RE = re.compile(
+    r"(?:^|[\r\n]+|[ \t]{2,})"
+    r"(?:"
+    r"(?:ข้อที่|ข้อ)\s*(\d{1,3})\s*[.):\-]?"
+    r"|[Qq]\s*(\d{1,3})\s*[.):\-]"
+    r"|\(\s*(\d{1,3})\s*\)"
+    r"|(\d{1,3})\s*(?:[):]|\.(?!\d))"
+    r")",
+    re.MULTILINE,
+)
+
+_SINGLE_CHOICE_TOKENS = {"ก", "ข", "ค", "ง", "จ", "a", "b", "c", "d", "e"}
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").translate(THAI_DIGITS_TABLE)).strip()
+
+
+def extract_numbered_answers(text: str) -> Dict[str, str]:
+    """
+    Parse a student's PDF text into per-question segments keyed by normalized question number ("1", "2", ...).
+    Supports Thai/English numbering (ข้อ 1, ข้อที่ 1, 1., 1), (1), Q1:) and Thai digits (๑, ๒, ๓).
+    """
+    if not text or not text.strip():
+        return {}
+    normalized = text.translate(THAI_DIGITS_TABLE)
+    matches = list(_QUESTION_MARKER_RE.finditer(normalized))
+    if not matches:
+        return {}
+
+    segments: Dict[str, str] = {}
+    for idx, match in enumerate(matches):
+        q_num = next((g for g in match.groups() if g is not None), None)
+        if not q_num:
+            continue
+        q_key = str(int(q_num))  # normalize "01" -> "1"
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(normalized)
+        body = _normalize_text(normalized[start:end])
+        if q_key in segments and segments[q_key]:
+            # Keep the richer segment if the question number appears twice (e.g., header + answer)
+            if len(body) > len(segments[q_key]):
+                segments[q_key] = body
+        else:
+            segments[q_key] = body
+    return segments
+
+
+def _normalize_expected_list(expected_raw: Any) -> List[str]:
+    if isinstance(expected_raw, list):
+        items = [str(x).strip() for x in expected_raw if str(x).strip()]
+    elif isinstance(expected_raw, str):
+        items = [p.strip() for p in re.split(r"[,;|/]", expected_raw) if p.strip()]
+    elif expected_raw is not None:
+        items = [str(expected_raw).strip()]
+    else:
+        items = []
+    return items
+
+
+def _match_single_choice(answer_text: str, choice: str) -> bool:
+    """
+    Match a single-letter multiple-choice answer (ก/ข/ค/ง/A/B/C/D) safely so 'ก' doesn't match inside 'การ'.
+    """
+    norm_ans = _normalize_text(answer_text).lower()
+    norm_choice = _normalize_text(choice).lower()
+    if not norm_ans or not norm_choice:
+        return False
+
+    # 1. Explicit "ตอบ ..." prefix (e.g. "ตอบ ก", "ตอบ: (A)", "Answer: B")
+    explicit = re.search(
+        r"(?:คำตอบ|ตอบ|answer|ans)\s*[:=\-]?\s*\(?([ก-จa-z0-9]+)\)?",
+        norm_ans,
+        re.IGNORECASE,
+    )
+    if explicit and explicit.group(1).lower() == norm_choice:
+        return True
+
+    # 2. Exact match after stripping punctuation/parentheses (e.g. "(ก).", "ก.", "A)")
+    stripped = re.sub(r"^[\s(\[{:.\-]+|[\s)\]}:.\-]+$", "", norm_ans)
+    if stripped == norm_choice:
+        return True
+
+    # 3. Leading choice token before explanation (e.g. "ก. ถูกต้อง", "B) because ...")
+    leading = re.match(r"^\(?([ก-จa-z])\)?(?:[\s.):\-]|$)", norm_ans, re.IGNORECASE)
+    if leading and leading.group(1).lower() == norm_choice:
+        return True
+
+    # 4. Standalone token bounded by non-Thai/non-ASCII word chars
+    boundary = re.search(
+        rf"(?<![a-z0-9ก-๙]){re.escape(norm_choice)}(?![a-z0-9ก-๙])",
+        norm_ans,
+        re.IGNORECASE,
+    )
+    return bool(boundary)
+
+
+def _match_expected_answer(answer_text: str, expected_items: List[str], match_mode: str = "any") -> tuple[bool, List[str]]:
+    if not expected_items:
+        return bool(answer_text.strip()), []
+
+    norm_ans = _normalize_text(answer_text).lower()
+    matched: List[str] = []
+
+    for exp in expected_items:
+        norm_exp = _normalize_text(exp).lower()
+        if not norm_exp:
+            continue
+        use_choice_matcher = match_mode == "exact_choice" or norm_exp in _SINGLE_CHOICE_TOKENS
+        if use_choice_matcher:
+            if _match_single_choice(norm_ans, norm_exp):
+                matched.append(exp)
+        else:
+            if norm_exp in norm_ans:
+                matched.append(exp)
+
+    if match_mode == "all":
+        return len(matched) == len(expected_items), matched
+    return len(matched) > 0, matched
 
 
 def is_canva_url(url: str) -> bool:
@@ -173,13 +300,15 @@ def evaluate_document_rule(doc: DocumentAnalysisResult, rule_config: Dict[str, A
     """
     Evaluate a document-based rubric criterion (PDF / Canva).
     Supported rule_config keys:
+    - answer_key: List[Dict] for per-question answer checking:
+        [{"question": "1", "prompt": "...", "expected": ["ก", "A"], "match_mode": "any"|"all"|"exact_choice", "points": 1}]
     - required_keywords: List[str] (case-insensitive substring match in extracted text/title)
     - min_pages: int
     - min_words: int
     - require_canva: bool
     """
-    checks_total = 0
-    checks_passed = 0
+    checks_total = 0.0
+    checks_passed = 0.0
     reasons: List[str] = []
     evidence: Dict[str, Any] = {
         "page_count": doc.page_count,
@@ -187,12 +316,81 @@ def evaluate_document_rule(doc: DocumentAnalysisResult, rule_config: Dict[str, A
         "is_canva_export": doc.is_canva_export,
     }
 
-    text_lower = f"{doc.title or ''}\n{doc.extracted_text}".lower()
+    full_doc_text = f"{doc.title or ''}\n{doc.extracted_text}"
+    text_lower = full_doc_text.translate(THAI_DIGITS_TABLE).lower()
+
+    answer_key = rule_config.get("answer_key") or []
+    if isinstance(answer_key, list) and len(answer_key) > 0:
+        numbered_answers = extract_numbered_answers(doc.extracted_text)
+        question_results: List[Dict[str, Any]] = []
+        correct_qs: List[str] = []
+        wrong_qs: List[str] = []
+        total_q_points = 0.0
+        earned_q_points = 0.0
+
+        for idx, item in enumerate(answer_key):
+            if not isinstance(item, dict):
+                continue
+            q_num_raw = str(item.get("question") or (idx + 1)).translate(THAI_DIGITS_TABLE).strip()
+            q_digits = re.search(r"\d+", q_num_raw)
+            q_key = str(int(q_digits.group(0))) if q_digits else q_num_raw
+            prompt = str(item.get("prompt") or "").strip()
+            expected_list = _normalize_expected_list(item.get("expected"))
+            match_mode = str(item.get("match_mode") or "any").strip().lower()
+            pts = float(item.get("points") or 1.0)
+            if pts <= 0:
+                pts = 1.0
+
+            student_segment = numbered_answers.get(q_key, "")
+            used_fallback = False
+            if not student_segment and not numbered_answers and match_mode != "exact_choice":
+                # Fallback when PDF has no numbered structure: search full text for non-choice answers
+                if not any(_normalize_text(e).lower() in _SINGLE_CHOICE_TOKENS for e in expected_list):
+                    student_segment = _normalize_text(doc.extracted_text)
+                    used_fallback = True
+
+            is_correct, matched_items = _match_expected_answer(student_segment, expected_list, match_mode=match_mode)
+            total_q_points += pts
+            if is_correct:
+                earned_q_points += pts
+                correct_qs.append(q_key)
+            else:
+                wrong_qs.append(q_key)
+
+            question_results.append(
+                {
+                    "question": q_key,
+                    "prompt": prompt,
+                    "expected": expected_list,
+                    "match_mode": match_mode,
+                    "student_answer": (student_segment[:240] if not used_fallback else "(ไม่พบเลขข้อ — ตรวจจากเนื้อหาทั้งเอกสาร)"),
+                    "matched": matched_items,
+                    "correct": is_correct,
+                    "awarded_points": pts if is_correct else 0.0,
+                    "max_points": pts,
+                }
+            )
+
+        evidence["question_results"] = question_results
+        evidence["correct_count"] = len(correct_qs)
+        evidence["total_questions"] = len(question_results)
+        evidence["earned_question_points"] = earned_q_points
+        evidence["total_question_points"] = total_q_points
+
+        checks_total += total_q_points
+        checks_passed += earned_q_points
+
+        summary_parts = [f"ตรวจเฉลย PDF ถูก {len(correct_qs)}/{len(question_results)} ข้อ"]
+        if correct_qs:
+            summary_parts.append(f"ข้อที่ถูก: {', '.join(correct_qs)}")
+        if wrong_qs:
+            summary_parts.append(f"ข้อที่ผิด: {', '.join(wrong_qs)}")
+        reasons.append(" (".join([summary_parts[0], " | ".join(summary_parts[1:]) + ")"]) if len(summary_parts) > 1 else summary_parts[0])
 
     req_keywords = rule_config.get("required_keywords") or []
     if req_keywords:
-        found = [kw for kw in req_keywords if str(kw).lower() in text_lower]
-        missing = [kw for kw in req_keywords if str(kw).lower() not in text_lower]
+        found = [kw for kw in req_keywords if str(kw).translate(THAI_DIGITS_TABLE).lower() in text_lower]
+        missing = [kw for kw in req_keywords if str(kw).translate(THAI_DIGITS_TABLE).lower() not in text_lower]
         checks_total += len(req_keywords)
         checks_passed += len(found)
         evidence["keywords_found"] = found
@@ -236,4 +434,4 @@ def evaluate_document_rule(doc: DocumentAnalysisResult, rule_config: Dict[str, A
         return passed, ratio, reason, evidence
 
     ratio = checks_passed / checks_total
-    return checks_passed == checks_total, ratio, " | ".join(reasons), evidence
+    return checks_passed >= checks_total, ratio, " | ".join(reasons), evidence
